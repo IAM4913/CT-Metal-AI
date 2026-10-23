@@ -20,9 +20,17 @@
 import { parseFraction } from "@/lib/catalog/normalize";
 
 const VULGAR = "¼½¾⅐⅑⅒⅓⅔⅕⅖⅗⅘⅙⅚⅛⅜⅝⅞";
-// A quantity parseFraction can read: whole, decimal ("24.5" or ".5"), fraction,
-// or mixed number (hyphen or space, ASCII or vulgar glyph).
-const Q = `((?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[-\\s]+\\d+\\/\\d+|[-\\s]*[${VULGAR}])?|\\d+\\/\\d+|[${VULGAR}])`;
+// An ASCII fraction with the ordinary slash or the fraction slash U+2044.
+const FRACTION = "\\d+[\\/\\u2044]\\d+";
+/**
+ * Regex source (non-capturing) for one quantity parseFraction can read: whole,
+ * decimal ("24.5" or ".5"), fraction, or mixed number (hyphen or space, ASCII
+ * or vulgar glyph). Exported so src/lib/parsing/normalize.ts builds its
+ * raw_text length token from this grammar and the two cannot drift: a narrower
+ * grammar there once read "12 1/2'" as "1/2'".
+ */
+export const LENGTH_QUANTITY = `(?:(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:[-\\s]+${FRACTION}|[-\\s]*[${VULGAR}])?|${FRACTION}|[${VULGAR}])`;
+const Q = `(${LENGTH_QUANTITY})`;
 const FEET = `(?:'|ft\\.?|feet|foot|lf|lin\\.?\\s*ft\\.?|linear\\s+feet)`;
 const INCH = `(?:"|in\\.?|inch|inches)`;
 

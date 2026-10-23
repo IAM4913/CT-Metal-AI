@@ -16,7 +16,9 @@
 //   ambiguous_unit       passed through when true
 //
 // manualDuplicateDims() gives markPossibleDuplicates() a key for lines typed by
-// hand, which have no section dims until Step 4 normalizes them.
+// hand, which have no section dims; parsedDuplicateDims() adds the length and
+// grade to a parsed line's key, since a designation's section dims alone cannot
+// tell two W12x26 lines in different lengths apart.
 
 import { normalizeAlias } from "@/lib/catalog/normalize";
 import {
@@ -41,6 +43,15 @@ export type FlagInput = {
 
 const LENGTHLESS_CATEGORIES: ReadonlySet<MaterialCategory> = new Set<MaterialCategory>(["plate", "sheet"]);
 
+/**
+ * Plate and sheet are bought by sheet size, not by length: no missing_length
+ * flag, and the parser never reads a length for them out of the raw text (a
+ * "4' x 8'" there is the sheet).
+ */
+export function isLengthlessCategory(category: MaterialCategory | null): boolean {
+  return category !== null && LENGTHLESS_CATEGORIES.has(category);
+}
+
 function isBlank(value: string | null | undefined): boolean {
   return value === null || value === undefined || value.trim() === "";
 }
@@ -55,11 +66,7 @@ export function computeLineFlags(input: FlagInput): RequestLineFlag[] {
   const flags = new Set<RequestLineFlag>();
   if (input.qty === null) flags.add("missing_qty");
   if (isBlank(input.grade_spec)) flags.add("missing_grade");
-  if (
-    input.length_ft === null &&
-    isBlank(input.length_text) &&
-    (input.category === null || !LENGTHLESS_CATEGORIES.has(input.category))
-  ) {
+  if (input.length_ft === null && isBlank(input.length_text) && !isLengthlessCategory(input.category)) {
     flags.add("missing_length");
   }
   if (input.catalog_item_id === null) flags.add("unmatched_item");
@@ -109,6 +116,28 @@ export function manualDuplicateDims(line: {
   return {
     qty: line.qty,
     unit: line.unit,
+    length: line.length_ft ?? foldText(line.length_text),
+    grade: foldText(line.grade_spec),
+  };
+}
+
+/**
+ * Duplicate key fields for a parsed line (normalizeExtractedLines), used beside
+ * its section dims. For a linked line the description is the designation and
+ * the section dims follow from it, so on dims alone two W12x26 lines in
+ * different lengths or grades would both be flagged; the length (feet, or the
+ * text when it did not parse) and the folded grade tell them apart, as they do
+ * for manual lines. Quantity and unit stay out of this key: the same item
+ * listed twice with different counts is the repeat the flag exists for, and a
+ * unit the code inferred from a piece word must not split a pair. For the key
+ * only; stored dims are unchanged.
+ */
+export function parsedDuplicateDims(line: {
+  length_ft: number | null;
+  length_text: string | null;
+  grade_spec: string | null;
+}): Record<string, unknown> {
+  return {
     length: line.length_ft ?? foldText(line.length_text),
     grade: foldText(line.grade_spec),
   };

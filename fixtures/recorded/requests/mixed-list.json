@@ -1,0 +1,140 @@
+{
+  "fixture": "mixed-list.eml",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "378450d4525764544853ebf85261222e0088b07f1c073a142740b7e3f1761e83",
+  "output": {
+    "lines": [
+      {
+        "raw_text": "W12x26 x 50' qty 8",
+        "span": {
+          "start": 101,
+          "end": 119
+        },
+        "product_type": "W12x26",
+        "category": "w_beam",
+        "dims": [
+          {
+            "key": "d",
+            "value": "12"
+          },
+          {
+            "key": "wt",
+            "value": "26"
+          }
+        ],
+        "grade_spec": null,
+        "qty": 8,
+        "unit": "pcs",
+        "length_ft": 50,
+        "length_text": "50'",
+        "cut_to_length": false,
+        "delivery_notes": "Deliver to the Fort Worth yard, need it by the 15th.",
+        "alternates_mentioned": [],
+        "confidence": 0.96,
+        "flags": []
+      },
+      {
+        "raw_text": "L2x2x1/4 x 20' qty 40",
+        "span": {
+          "start": 120,
+          "end": 141
+        },
+        "product_type": "L2x2x1/4",
+        "category": "angle",
+        "dims": [
+          {
+            "key": "a",
+            "value": "2"
+          },
+          {
+            "key": "b",
+            "value": "2"
+          },
+          {
+            "key": "t",
+            "value": "1/4"
+          }
+        ],
+        "grade_spec": null,
+        "qty": 40,
+        "unit": "pcs",
+        "length_ft": 20,
+        "length_text": "20'",
+        "cut_to_length": false,
+        "delivery_notes": "Deliver to the Fort Worth yard, need it by the 15th.",
+        "alternates_mentioned": [],
+        "confidence": 0.96,
+        "flags": []
+      },
+      {
+        "raw_text": "3/8 plate 48x96 qty 10 A36",
+        "span": {
+          "start": 142,
+          "end": 168
+        },
+        "product_type": "3/8 plate",
+        "category": "plate",
+        "dims": [
+          {
+            "key": "t",
+            "value": "3/8"
+          },
+          {
+            "key": "w",
+            "value": "48"
+          },
+          {
+            "key": "l",
+            "value": "96"
+          }
+        ],
+        "grade_spec": "A36",
+        "qty": 10,
+        "unit": "pcs",
+        "length_ft": null,
+        "length_text": null,
+        "cut_to_length": false,
+        "delivery_notes": "Deliver to the Fort Worth yard, need it by the 15th.",
+        "alternates_mentioned": [],
+        "confidence": 0.92,
+        "flags": []
+      },
+      {
+        "raw_text": "6\" sq 3/8 x 24' qty 20",
+        "span": {
+          "start": 169,
+          "end": 191
+        },
+        "product_type": "6\" sq 3/8",
+        "category": "hss_square",
+        "dims": [
+          {
+            "key": "a",
+            "value": "6"
+          },
+          {
+            "key": "b",
+            "value": "6"
+          },
+          {
+            "key": "t",
+            "value": "3/8"
+          }
+        ],
+        "grade_spec": null,
+        "qty": 20,
+        "unit": "pcs",
+        "length_ft": 24,
+        "length_text": "24'",
+        "cut_to_length": false,
+        "delivery_notes": "Deliver to the Fort Worth yard, need it by the 15th.",
+        "alternates_mentioned": [],
+        "confidence": 0.9,
+        "flags": []
+      }
+    ],
+    "notes": "The quoted earlier email about C8x11.5 for Job 4402 is a shipping update, not part of this request."
+  }
+}

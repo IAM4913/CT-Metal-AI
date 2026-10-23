@@ -1,0 +1,169 @@
+{
+  "fixture": "pdf-list.eml",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "c6d1c8b3ff6372561ee4e53c3c2b8eb5417f194ee497200c7ead950310f001e3",
+  "output": {
+    "lines": [
+      {
+        "raw_text": "HSS4x4x1/4 4x4x1/4 square tube 30 pcs 24' A500 Gr B",
+        "span": {
+          "start": 429,
+          "end": 480
+        },
+        "product_type": "HSS4x4x1/4",
+        "category": "hss_square",
+        "dims": [
+          {
+            "key": "a",
+            "value": "4"
+          },
+          {
+            "key": "b",
+            "value": "4"
+          },
+          {
+            "key": "t",
+            "value": "1/4"
+          }
+        ],
+        "grade_spec": "A500 Gr B",
+        "qty": 30,
+        "unit": "pcs",
+        "length_ft": 24,
+        "length_text": "24'",
+        "cut_to_length": false,
+        "delivery_notes": "Need everything on site by Nov 10. Deliver to the Bryan shop.",
+        "alternates_mentioned": [],
+        "confidence": 0.97,
+        "flags": []
+      },
+      {
+        "raw_text": "W8x18 wide flange 6 pcs 40' A992",
+        "span": {
+          "start": 481,
+          "end": 513
+        },
+        "product_type": "W8x18",
+        "category": "w_beam",
+        "dims": [
+          {
+            "key": "d",
+            "value": "8"
+          },
+          {
+            "key": "wt",
+            "value": "18"
+          }
+        ],
+        "grade_spec": "A992",
+        "qty": 6,
+        "unit": "pcs",
+        "length_ft": 40,
+        "length_text": "40'",
+        "cut_to_length": false,
+        "delivery_notes": "Need everything on site by Nov 10. Deliver to the Bryan shop.",
+        "alternates_mentioned": [],
+        "confidence": 0.97,
+        "flags": []
+      },
+      {
+        "raw_text": "L3x3x1/4 angle 24 pcs 20' A36",
+        "span": {
+          "start": 514,
+          "end": 543
+        },
+        "product_type": "L3x3x1/4",
+        "category": "angle",
+        "dims": [
+          {
+            "key": "a",
+            "value": "3"
+          },
+          {
+            "key": "b",
+            "value": "3"
+          },
+          {
+            "key": "t",
+            "value": "1/4"
+          }
+        ],
+        "grade_spec": "A36",
+        "qty": 24,
+        "unit": "pcs",
+        "length_ft": 20,
+        "length_text": "20'",
+        "cut_to_length": false,
+        "delivery_notes": "Need everything on site by Nov 10. Deliver to the Bryan shop.",
+        "alternates_mentioned": [],
+        "confidence": 0.96,
+        "flags": []
+      },
+      {
+        "raw_text": "PL1/2 plate 60 x 120 4 pcs A36",
+        "span": {
+          "start": 544,
+          "end": 574
+        },
+        "product_type": "PL1/2",
+        "category": "plate",
+        "dims": [
+          {
+            "key": "t",
+            "value": "1/2"
+          },
+          {
+            "key": "w",
+            "value": "60"
+          },
+          {
+            "key": "l",
+            "value": "120"
+          }
+        ],
+        "grade_spec": "A36",
+        "qty": 4,
+        "unit": "pcs",
+        "length_ft": null,
+        "length_text": null,
+        "cut_to_length": false,
+        "delivery_notes": "Need everything on site by Nov 10. Deliver to the Bryan shop.",
+        "alternates_mentioned": [],
+        "confidence": 0.94,
+        "flags": []
+      },
+      {
+        "raw_text": "PIPE2STD 2\" sch 40 pipe 12 pcs 21' A53 Gr B",
+        "span": {
+          "start": 575,
+          "end": 618
+        },
+        "product_type": "PIPE2STD",
+        "category": "pipe",
+        "dims": [
+          {
+            "key": "nps",
+            "value": "2"
+          },
+          {
+            "key": "sch",
+            "value": "40"
+          }
+        ],
+        "grade_spec": "A53 Gr B",
+        "qty": 12,
+        "unit": "pcs",
+        "length_ft": 21,
+        "length_text": "21'",
+        "cut_to_length": false,
+        "delivery_notes": "Need everything on site by Nov 10. Deliver to the Bryan shop.",
+        "alternates_mentioned": [],
+        "confidence": 0.95,
+        "flags": []
+      }
+    ],
+    "notes": "All five items come from the attached table; the email body only states the delivery date."
+  }
+}

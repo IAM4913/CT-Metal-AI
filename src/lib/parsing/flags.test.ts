@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { requestLineFlagValues, type RequestLineFlag } from "@/lib/db/enums";
-import { computeLineFlags, manualDuplicateDims, markPossibleDuplicates, orderFlags, type FlagInput } from "./flags";
+import {
+  computeLineFlags,
+  isLengthlessCategory,
+  manualDuplicateDims,
+  markPossibleDuplicates,
+  orderFlags,
+  parsedDuplicateDims,
+  type FlagInput,
+} from "./flags";
 
 // A line with nothing missing: no flags at all.
 const complete: FlagInput = {
@@ -46,6 +54,10 @@ describe("computeLineFlags", () => {
   });
 
   it("does not flag missing_length on plate or sheet", () => {
+    expect(isLengthlessCategory("plate")).toBe(true);
+    expect(isLengthlessCategory("sheet")).toBe(true);
+    expect(isLengthlessCategory("flat_bar")).toBe(false);
+    expect(isLengthlessCategory(null)).toBe(false);
     expect(computeLineFlags({ ...complete, length_ft: null, length_text: null, category: "plate" })).toEqual([]);
     expect(computeLineFlags({ ...complete, length_ft: null, length_text: null, category: "sheet" })).toEqual([]);
     // Other flags still apply to plate.
@@ -169,6 +181,40 @@ describe("markPossibleDuplicates", () => {
     expect(markPossibleDuplicates([])).toEqual([]);
     const single: Line[] = [{ id: 1, description: "W12x26", dims: {}, flags: [] }];
     expect(markPossibleDuplicates(single)).toEqual(single);
+  });
+});
+
+describe("parsedDuplicateDims", () => {
+  type Parsed = Parameters<typeof parsedDuplicateDims>[0];
+  const w12: Parsed = { length_ft: 50, length_text: "50'", grade_spec: null };
+  const line = (id: number, parsed: Parsed) => ({
+    id,
+    description: "W12x26",
+    dims: { section: { d: 12, wt: 26 }, ...parsedDuplicateDims(parsed) },
+    flags: [] as RequestLineFlag[],
+  });
+
+  it("keys on the parsed length and the folded grade", () => {
+    expect(parsedDuplicateDims(w12)).toEqual({ length: 50, grade: null });
+    expect(parsedDuplicateDims({ ...w12, grade_spec: " A992 " })).toEqual({ length: 50, grade: "a992" });
+    // Unparsed text stands in for the number; blank text is null.
+    expect(parsedDuplicateDims({ length_ft: null, length_text: "40' or 48'", grade_spec: "A36" })).toEqual({
+      length: "40' or 48'",
+      grade: "a36",
+    });
+    expect(parsedDuplicateDims({ length_ft: null, length_text: "  ", grade_spec: null })).toEqual({ length: null, grade: null });
+  });
+
+  it("keeps the same section in different lengths or grades apart and flags a repeat", () => {
+    const lines = [
+      line(1, w12),
+      line(2, { ...w12, length_ft: 40, length_text: "40'" }),
+      line(3, { ...w12, grade_spec: "A992" }),
+      line(4, { ...w12, length_ft: null, length_text: null }),
+      line(5, { ...w12, grade_spec: "a992" }),
+    ];
+    const marked = markPossibleDuplicates(lines);
+    expect(marked.map((l) => l.flags)).toEqual([[], [], ["possible_duplicate"], [], ["possible_duplicate"]]);
   });
 });
 

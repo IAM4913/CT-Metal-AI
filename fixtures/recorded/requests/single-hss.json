@@ -1,0 +1,49 @@
+{
+  "fixture": "single-hss.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "c76e0522d7825e49e4773a2b603f4ffd3c3e2786f402694dee4f4d1d550f351d",
+  "output": {
+    "lines": [
+      {
+        "raw_text": "100 pcs 8x8x5/8 HSS, 40' lengths, A500 Gr B, delivered Fort Worth",
+        "span": {
+          "start": 36,
+          "end": 101
+        },
+        "product_type": "8x8x5/8 HSS",
+        "category": "hss_square",
+        "dims": [
+          {
+            "key": "a",
+            "value": "8"
+          },
+          {
+            "key": "b",
+            "value": "8"
+          },
+          {
+            "key": "t",
+            "value": "5/8"
+          }
+        ],
+        "grade_spec": "A500 Gr B",
+        "qty": 100,
+        "unit": "pcs",
+        "length_ft": 40,
+        "length_text": "40'",
+        "cut_to_length": false,
+        "delivery_notes": "delivered Fort Worth",
+        "alternates_mentioned": [
+          "If 5/8 is too heavy can look at 3/8"
+        ],
+        "confidence": 0.95,
+        "flags": [
+          "alternate_mentioned"
+        ]
+      }
+    ],
+    "notes": null
+  }
+}

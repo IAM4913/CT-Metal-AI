@@ -1,0 +1,71 @@
+{
+  "fixture": "ambiguous.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "e3214e6a5501c39e9dbd68383ec7609e6f78f53890b35084248a9ceb81a86510",
+  "output": {
+    "lines": [
+      {
+        "raw_text": "8 square 3/8 x 40 - 20 pcs",
+        "span": {
+          "start": 20,
+          "end": 46
+        },
+        "product_type": "8 square 3/8",
+        "category": "hss_square",
+        "dims": [
+          {
+            "key": "a",
+            "value": "8"
+          },
+          {
+            "key": "b",
+            "value": "8"
+          },
+          {
+            "key": "t",
+            "value": "3/8"
+          }
+        ],
+        "grade_spec": null,
+        "qty": 20,
+        "unit": "pcs",
+        "length_ft": null,
+        "length_text": "x 40",
+        "cut_to_length": false,
+        "delivery_notes": null,
+        "alternates_mentioned": [
+          "also 1/2 wall if 3/8 not available"
+        ],
+        "confidence": 0.8,
+        "flags": [
+          "alternate_mentioned"
+        ]
+      },
+      {
+        "raw_text": "some angle for clips",
+        "span": {
+          "start": 88,
+          "end": 108
+        },
+        "product_type": "angle",
+        "category": "angle",
+        "dims": [],
+        "grade_spec": null,
+        "qty": null,
+        "unit": null,
+        "length_ft": null,
+        "length_text": null,
+        "cut_to_length": false,
+        "delivery_notes": null,
+        "alternates_mentioned": [],
+        "confidence": 0.6,
+        "flags": [
+          "ambiguous_size"
+        ]
+      }
+    ],
+    "notes": "The 40 after the 8 square 3/8 carries no foot mark."
+  }
+}

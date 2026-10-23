@@ -1,0 +1,49 @@
+{
+  "fixture": "channel-heavier.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "b12f6d2cddf85afe207778e70da211ac5a5149ef183795f4f6c613db139842ab",
+  "output": {
+    "lines": [
+      {
+        "raw_text": "12 inch channel 30# or heavier, 6 pcs at 40 ft",
+        "span": {
+          "start": 20,
+          "end": 66
+        },
+        "product_type": "12 inch channel 30#",
+        "category": "channel",
+        "dims": [
+          {
+            "key": "d",
+            "value": "12"
+          },
+          {
+            "key": "wt",
+            "value": "30"
+          },
+          {
+            "key": "series",
+            "value": "C"
+          }
+        ],
+        "grade_spec": null,
+        "qty": 6,
+        "unit": "pcs",
+        "length_ft": 40,
+        "length_text": "40 ft",
+        "cut_to_length": false,
+        "delivery_notes": null,
+        "alternates_mentioned": [
+          "or heavier"
+        ],
+        "confidence": 0.9,
+        "flags": [
+          "alternate_mentioned"
+        ]
+      }
+    ],
+    "notes": null
+  }
+}
