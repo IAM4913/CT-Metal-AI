@@ -20,6 +20,11 @@
 // every parsed line again. line_no has no unique constraint, so the two sets
 // may share numbers for the moment both exist.
 //
+// A parsed line may already be routed (the Route tab works before Confirm),
+// and rfq_lines references request_lines with no cascade, so the stale lines
+// are taken off their drafts first (unrouteLines in routing.ts: the rows go,
+// an emptied draft is deleted, the rest are rebuilt) and deleted second.
+//
 // On any failure after the status flips to "parsing" the request goes back to
 // "new" and the error is rethrown; the llm_call row (written by
 // callExtractionTool, success or failure) is the record of what happened.
@@ -35,6 +40,7 @@ import { normalizeExtractedLines, type NormalizedLine } from "@/lib/parsing/norm
 import { buildExtractionUserMessage, EXTRACTION_SYSTEM_PROMPT } from "@/lib/parsing/prompt";
 import { EXTRACT_MATERIAL_LINES, extractMaterialLinesOutputSchema } from "@/lib/parsing/schema";
 import { ATTACHMENTS_BUCKET } from "@/lib/server/attachments";
+import { unrouteLines } from "@/lib/server/routing";
 import type { BrokerSession } from "@/lib/server/session";
 
 const PDF_MIME = "application/pdf";
@@ -86,6 +92,7 @@ export async function parseRequest(session: BrokerSession, requestId: string): P
         throw new Error(`Could not save the parsed lines: ${error.message}`);
       }
     }
+    await unrouteLines(session, requestId, stale);
     await deleteLines(session, requestId, stale);
 
     await setRequestStatus(session, requestId, "needs_review");

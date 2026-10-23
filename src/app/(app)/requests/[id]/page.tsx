@@ -40,7 +40,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
   const [workspace, session] = await Promise.all([loadRequestWorkspace(id), requireBroker()]);
   if (!workspace) notFound();
 
-  const { request, lines, attachments, messages } = workspace;
+  const { request, lines, attachments, messages, childRequestId } = workspace;
   const designations = await loadDesignations(session, lines);
   const reviewLines = lines.map((row) => toReviewLine(row, designations));
   const gate = canConfirm(lines);
@@ -63,6 +63,7 @@ export default async function ReviewPage({ params }: ReviewPageProps) {
       attachments={attachments.map((a) => ({ id: a.id, filename: a.filename, mime: a.mime, size_bytes: a.size_bytes }))}
       message={message}
       canConfirm={{ ok: gate.ok, problems: [...gate.problems] }}
+      supersededBy={childRequestId}
     />
   );
 }

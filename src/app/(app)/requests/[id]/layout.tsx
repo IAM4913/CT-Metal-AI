@@ -1,8 +1,14 @@
 // Request workspace shell (PRD section 9, /requests/[id]): header, tab strip,
 // then the active tab. The workspace is loaded through the cached loader so the
 // tab page underneath reuses the same rows without a second round of queries.
+//
+// Revisions (AC-8.4, PRD section 10): a request edited after any RFQ was sent
+// is copied to a new revision with parent_request_id set, and the old one keeps
+// its RFQs and messages. The header names the revision and links back to the
+// parent; the old revision shows a banner linking forward to the newer one.
 
 import { format } from "date-fns";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { RequestTabs } from "@/components/request-tabs";
@@ -27,7 +33,7 @@ export default async function RequestLayout({ params, children }: RequestLayoutP
   const workspace = await loadRequestWorkspace(id);
   if (!workspace) notFound();
 
-  const { request, customer } = workspace;
+  const { request, customer, childRequestId } = workspace;
   const title = request.subject.trim() !== "" ? request.subject : "Material request";
 
   return (
@@ -59,9 +65,35 @@ export default async function RequestLayout({ params, children }: RequestLayoutP
           </div>
           <div>
             <dt className="inline font-medium text-zinc-800">Revision</dt>{" "}
-            <dd className="inline tabular-nums">{request.revision}</dd>
+            <dd className="inline">
+              <span className="tabular-nums">{request.revision}</span>
+              {request.parent_request_id ? (
+                <>
+                  <span> (edited after send)</span>{" "}
+                  <Link
+                    href={`/requests/${request.parent_request_id}`}
+                    className="font-medium text-zinc-900 underline hover:text-zinc-700"
+                  >
+                    Back to revision {request.revision - 1}
+                  </Link>
+                </>
+              ) : null}
+            </dd>
           </div>
         </dl>
+        {childRequestId ? (
+          <p
+            role="status"
+            className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            This revision was edited after its RFQs went out, so its RFQs and messages stay here and the current
+            lines live on{" "}
+            <Link href={`/requests/${childRequestId}`} className="font-medium underline hover:text-amber-700">
+              the newer revision
+            </Link>
+            .
+          </p>
+        ) : null}
       </header>
 
       <RequestTabs requestId={request.id} />

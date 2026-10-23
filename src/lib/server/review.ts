@@ -27,6 +27,21 @@
 // mergeLines() takes the length pair (length_text and length_ft) from one line,
 // never one half from each, so the stored number always belongs to the stored
 // text. mergeLineValues() is the pure part.
+//
+// Drafts (Step 5): a line edit that changes what an RFQ body says (values,
+// catalog link, removal) is passed to syncDraftsForLine() in routing.ts from
+// writeLineChange(), so the editable drafts that carry the line follow it: a
+// removed line leaves them, an emptied draft is deleted, and the text is
+// rebuilt unless the broker edited the body by hand. affectsDrafts() is the
+// pure rule for which changes qualify.
+//
+// Revisions (AC-8.4): once any RFQ of a request has been sent, its lines are
+// frozen. requestHasSentRfqs() is the check and createRevision() copies the
+// request, its live lines, and its attachments rows into a new request
+// (revision + 1, parent_request_id set, status needs_review) so the edit lands
+// there. The server actions call both before every line edit. Old RFQs and
+// messages stay on the old revision. Once the child exists the old revision is
+// superseded and refuses further edits (assertNotSuperseded in revisions.ts).
 
 import { z } from "zod";
 import { normalizeAlias } from "@/lib/catalog/normalize";
@@ -41,6 +56,7 @@ import {
 } from "@/lib/db/enums";
 import { computeLineFlags, orderFlags } from "@/lib/parsing/flags";
 import { parseLengthFt } from "@/lib/parsing/length";
+import { SENT_RFQ_STATUSES, syncDraftsForLine } from "@/lib/server/routing";
 import type { BrokerSession } from "@/lib/server/session";
 
 export type LineRow = Tables<"request_lines">;
@@ -263,6 +279,35 @@ export function diffLine(before: LineRow, after: LineRow): LineDiff {
     }
   }
   return diff;
+}
+
+/** The line fields an RFQ body is written from (toRfqLineView in routing.ts). */
+const DRAFT_FIELDS: ReadonlySet<DiffKey> = new Set<DiffKey>([
+  "raw_text",
+  "description",
+  "catalog_item_id",
+  "dims",
+  "grade_spec",
+  "qty",
+  "unit",
+  "length_ft",
+  "length_text",
+  "delivery_notes",
+]);
+
+/**
+ * Whether a line change has to reach the drafts that carry the line: a field
+ * the body is written from changed, or the line was removed (or brought back).
+ * Flags, confidence, cut_to_length, and a parsed/confirmed/custom status change
+ * do not show in a body and leave the drafts alone.
+ */
+export function affectsDrafts(
+  diff: Pick<LineDiff, "changed">,
+  before: Pick<LineRow, "status">,
+  after: Pick<LineRow, "status">,
+): boolean {
+  if (before.status !== after.status && (before.status === "removed" || after.status === "removed")) return true;
+  return diff.changed.some((key) => DRAFT_FIELDS.has(key));
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +553,227 @@ export async function searchCatalog(session: BrokerSession, q: string): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Revisions (AC-8.4)
+// ---------------------------------------------------------------------------
+
+/** True when any RFQ of this request has gone out (status sent, responded, declined, or closed). */
+export async function requestHasSentRfqs(session: BrokerSession, requestId: string): Promise<boolean> {
+  const { count, error } = await session.supabase
+    .from("rfqs")
+    .select("id", { count: "exact", head: true })
+    .eq("broker_id", session.brokerId)
+    .eq("request_id", requestId)
+    .in("status", [...SENT_RFQ_STATUSES]);
+  if (error) {
+    throw new Error(`Could not read RFQs: ${error.message}`);
+  }
+  return (count ?? 0) > 0;
+}
+
+/**
+ * The attachments rows for a new revision, pure: every file of the parent
+ * request with a fresh id and the new owner, pointing at the same Storage
+ * object (same storage_path, filename, mime, size, and hash). Returns the rows
+ * and the old-to-new id map, which revisionLineRows uses to keep each PDF
+ * line's source_span pointing at a file the new revision owns.
+ */
+export function revisionAttachmentRows(
+  attachments: Tables<"attachments">[],
+  brokerId: string,
+  newRequestId: string,
+  newId: () => string,
+): { rows: TablesInsert<"attachments">[]; attachmentIdMap: Map<string, string> } {
+  const rows: TablesInsert<"attachments">[] = [];
+  const attachmentIdMap = new Map<string, string>();
+  for (const attachment of attachments) {
+    const id = newId();
+    attachmentIdMap.set(attachment.id, id);
+    rows.push({
+      id,
+      broker_id: brokerId,
+      owner_type: "request",
+      owner_id: newRequestId,
+      storage_path: attachment.storage_path,
+      filename: attachment.filename,
+      mime: attachment.mime,
+      size_bytes: attachment.size_bytes,
+      sha256: attachment.sha256,
+    });
+  }
+  return { rows, attachmentIdMap };
+}
+
+/** A source_span whose attachment_id is rewritten through the map. Text spans, {}, and unknown ids pass through unchanged. */
+export function remapSourceSpan(span: NonNullable<Json>, attachmentIdMap: Map<string, string>): NonNullable<Json> {
+  if (typeof span !== "object" || Array.isArray(span)) return span;
+  const record = span as { [key: string]: Json | undefined };
+  if (record["kind"] !== "attachment" || typeof record["attachment_id"] !== "string") return span;
+  const mapped = attachmentIdMap.get(record["attachment_id"]);
+  return mapped === undefined ? span : { ...record, attachment_id: mapped };
+}
+
+/**
+ * The line rows for a new revision, pure: every non-removed line with a fresh
+ * id, the same fields, and its status kept (parsed stays parsed, confirmed and
+ * custom stay as they are). A source_span that points at a parent attachment
+ * is rewritten to the copied attachment (remapSourceSpan). Returns the rows and
+ * the old-to-new id map.
+ */
+export function revisionLineRows(
+  lines: LineRow[],
+  brokerId: string,
+  newRequestId: string,
+  newId: () => string,
+  attachmentIdMap: Map<string, string> = new Map(),
+): { rows: TablesInsert<"request_lines">[]; lineIdMap: Map<string, string> } {
+  const rows: TablesInsert<"request_lines">[] = [];
+  const lineIdMap = new Map<string, string>();
+  for (const line of lines) {
+    if (line.status === "removed") continue;
+    const id = newId();
+    lineIdMap.set(line.id, id);
+    // Every column but the id, the parent keys, and the timestamps (the database stamps those).
+    rows.push({
+      id,
+      broker_id: brokerId,
+      request_id: newRequestId,
+      line_no: line.line_no,
+      raw_text: line.raw_text,
+      catalog_item_id: line.catalog_item_id,
+      category: line.category,
+      description: line.description,
+      dims: line.dims,
+      grade_spec: line.grade_spec,
+      qty: line.qty,
+      unit: line.unit,
+      length_ft: line.length_ft,
+      length_text: line.length_text,
+      cut_to_length: line.cut_to_length,
+      delivery_notes: line.delivery_notes,
+      flags: line.flags,
+      confidence: line.confidence,
+      source_span: remapSourceSpan(line.source_span, attachmentIdMap),
+      status: line.status,
+    });
+  }
+  return { rows, lineIdMap };
+}
+
+/**
+ * AC-8.4: copy a request whose RFQs have been sent into a new revision so it
+ * can be edited. The new request has revision + 1, parent_request_id set,
+ * status needs_review, and the same customer, subject, source text, source
+ * message id, received_at, delivery requirements, notes, and source type.
+ * Its attachments rows are copied with new ids over the same Storage objects
+ * (revisionAttachmentRows), so the files stay viewable beside the lines
+ * (AC-1.4) and a re-parse of the new revision still reads the PDFs; every
+ * non-removed line is copied with a new id and its source_span pointed at the
+ * copied file (revisionLineRows). Logs request.revision_created on both
+ * requests. The old revision's RFQs and messages stay where they are.
+ */
+export async function createRevision(
+  session: BrokerSession,
+  requestId: string,
+): Promise<{ newRequestId: string; lineIdMap: Map<string, string> }> {
+  const parent = await loadRequest(session, requestId);
+  const [{ data: lines, error: linesError }, { data: attachments, error: attachmentsError }] = await Promise.all([
+    session.supabase
+      .from("request_lines")
+      .select("*")
+      .eq("broker_id", session.brokerId)
+      .eq("request_id", requestId)
+      .order("line_no", { ascending: true }),
+    session.supabase
+      .from("attachments")
+      .select("*")
+      .eq("broker_id", session.brokerId)
+      .eq("owner_type", "request")
+      .eq("owner_id", requestId)
+      .order("created_at", { ascending: true }),
+  ]);
+  if (linesError) {
+    throw new Error(`Could not read request lines: ${linesError.message}`);
+  }
+  if (attachmentsError) {
+    throw new Error(`Could not read attachments: ${attachmentsError.message}`);
+  }
+
+  const newRequestId = crypto.randomUUID();
+  const request: TablesInsert<"requests"> = {
+    id: newRequestId,
+    broker_id: session.brokerId,
+    customer_id: parent.customer_id,
+    source_type: parent.source_type,
+    subject: parent.subject,
+    source_text: parent.source_text,
+    source_message_id: parent.source_message_id,
+    received_at: parent.received_at,
+    status: "needs_review",
+    revision: parent.revision + 1,
+    parent_request_id: parent.id,
+    delivery_requirements: parent.delivery_requirements,
+    notes: parent.notes,
+  };
+  const { error: requestError } = await session.supabase.from("requests").insert(request);
+  if (requestError) {
+    throw new Error(`Could not create the new revision: ${requestError.message}`);
+  }
+
+  const { rows: attachmentRows, attachmentIdMap } = revisionAttachmentRows(
+    attachments ?? [],
+    session.brokerId,
+    newRequestId,
+    () => crypto.randomUUID(),
+  );
+  if (attachmentRows.length > 0) {
+    const { error } = await session.supabase.from("attachments").insert(attachmentRows);
+    if (error) {
+      throw new Error(`Could not copy the attachments into the new revision: ${error.message}`);
+    }
+  }
+
+  const { rows, lineIdMap } = revisionLineRows(lines ?? [], session.brokerId, newRequestId, () => crypto.randomUUID(), attachmentIdMap);
+  if (rows.length > 0) {
+    const { error } = await session.supabase.from("request_lines").insert(rows);
+    if (error) {
+      throw new Error(`Could not copy the lines into the new revision: ${error.message}`);
+    }
+  }
+
+  await logActivity(session, "request", parent.id, "request.revision_created", {
+    child_request_id: newRequestId,
+    revision: request.revision,
+    line_count: rows.length,
+    attachment_count: attachmentRows.length,
+  });
+  await logActivity(session, "request", newRequestId, "request.revision_created", {
+    parent_request_id: parent.id,
+    revision: request.revision,
+    line_count: rows.length,
+    attachment_count: attachmentRows.length,
+  });
+  return { newRequestId, lineIdMap };
+}
+
+// ---------------------------------------------------------------------------
 // Database helpers
 // ---------------------------------------------------------------------------
+
+async function loadRequest(session: BrokerSession, requestId: string): Promise<Tables<"requests">> {
+  const { data, error } = await session.supabase
+    .from("requests")
+    .select("*")
+    .eq("broker_id", session.brokerId)
+    .eq("id", requestId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Could not read request: ${error.message}`);
+  }
+  if (!data) {
+    throw new Error("Request not found.");
+  }
+  return data;
+}
 
 /** Strip LIKE wildcards and the PostgREST star so a search term is matched literally. */
 function likeSafe(text: string): string {
@@ -620,7 +884,9 @@ async function maxLineNo(session: BrokerSession, requestId: string): Promise<num
 
 /**
  * Persist the fields that differ between before and after, then log the
- * change with those fields only. No write and no log row when nothing changed.
+ * change with those fields only, then let the drafts that carry the line
+ * follow it (syncDraftsForLine) when the change shows in an RFQ body. No
+ * write and no log row when nothing changed.
  */
 async function writeLineChange(
   session: BrokerSession,
@@ -651,6 +917,7 @@ async function writeLineChange(
     before: diff.before as { [key: string]: Json | undefined },
     after: diff.after as { [key: string]: Json | undefined },
   });
+  if (affectsDrafts(diff, before, data)) await syncDraftsForLine(session, before, data);
   return data;
 }
 

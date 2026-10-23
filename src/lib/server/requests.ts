@@ -19,6 +19,13 @@ export type RequestWorkspace = {
   lines: Tables<"request_lines">[];
   attachments: Tables<"attachments">[];
   messages: Tables<"messages">[];
+  /**
+   * The newest later revision of this request (parent_request_id = this id),
+   * when one exists (AC-8.4). Highest revision, then newest created_at. A set
+   * child means this revision is superseded: the tabs render it read-only and
+   * every write path refuses it (assertNotSuperseded in revisions.ts).
+   */
+  childRequestId: string | null;
 };
 
 export type CustomerOption = Pick<Tables<"customers">, "id" | "name" | "short_name">;
@@ -39,7 +46,7 @@ export async function getRequestWorkspace(
 
   const { supabase, brokerId } = session;
 
-  const [requestResult, linesResult, attachmentsResult, messagesResult] = await Promise.all([
+  const [requestResult, linesResult, attachmentsResult, messagesResult, childResult] = await Promise.all([
     supabase.from("requests").select("*").eq("broker_id", brokerId).eq("id", requestId).maybeSingle(),
     supabase
       .from("request_lines")
@@ -60,6 +67,15 @@ export async function getRequestWorkspace(
       .eq("broker_id", brokerId)
       .eq("request_id", requestId)
       .order("received_at", { ascending: true }),
+    supabase
+      .from("requests")
+      .select("id")
+      .eq("broker_id", brokerId)
+      .eq("parent_request_id", requestId)
+      .order("revision", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (requestResult.error) {
@@ -75,6 +91,9 @@ export async function getRequestWorkspace(
   if (messagesResult.error) {
     throw new Error(`Could not read messages: ${messagesResult.error.message}`);
   }
+  if (childResult.error) {
+    throw new Error(`Could not read request revisions: ${childResult.error.message}`);
+  }
 
   const request = requestResult.data;
   const customer = request.customer_id ? await getCustomer(session, request.customer_id) : null;
@@ -85,6 +104,7 @@ export async function getRequestWorkspace(
     lines: linesResult.data ?? [],
     attachments: attachmentsResult.data ?? [],
     messages: messagesResult.data ?? [],
+    childRequestId: childResult.data?.id ?? null,
   };
 }
 

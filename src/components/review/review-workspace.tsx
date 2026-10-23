@@ -8,7 +8,15 @@
 // link dialog. Every write goes through a server action in
 // src/app/(app)/requests/[id]/actions.ts and is followed by router.refresh(),
 // so the rows shown are always the database rows; nothing is patched locally.
+//
+// An edit on a request with a sent RFQ lands on a new revision (AC-8.4): the
+// action answers with redirectTo and the workspace follows it with router.push
+// instead of refreshing, so the broker is looking at the revision that holds
+// the change. Once that newer revision exists this one is superseded
+// (supersededBy is set) and the whole tab renders read-only: the grid, Parse,
+// Confirm, merge, and the add row are all off, and the note links forward.
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition, type FormEvent } from "react";
 import {
@@ -37,9 +45,11 @@ export type ReviewWorkspaceProps = {
   attachments: SourceAttachment[];
   message: SourceMessage | null;
   canConfirm: { ok: boolean; problems: string[] };
+  /** The newer revision's id when this one is superseded (AC-8.4); everything here is then read-only. */
+  supersededBy: string | null;
 };
 
-type ActionOutcome = { ok: true } | { ok: false; error: string };
+type ActionOutcome = { ok: true; redirectTo?: string | null } | { ok: false; error: string };
 
 const primaryButton =
   "rounded bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400";
@@ -49,8 +59,9 @@ const secondaryButton =
 /** Statuses in which the request has not been confirmed yet. */
 const BEFORE_REVIEW: ReadonlySet<RequestStatus> = new Set<RequestStatus>(["new", "parsing", "needs_review"]);
 
-export function ReviewWorkspace({ request, lines, attachments, message, canConfirm }: ReviewWorkspaceProps) {
+export function ReviewWorkspace({ request, lines, attachments, message, canConfirm, supersededBy }: ReviewWorkspaceProps) {
   const router = useRouter();
+  const readOnly = supersededBy !== null;
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [checked, setChecked] = useState<ReadonlySet<string>>(() => new Set());
   const [showRemoved, setShowRemoved] = useState(false);
@@ -79,7 +90,8 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
   }, [selectedLine, attachments]);
 
   // Run a server action; on success refresh the server components so the grid
-  // shows the stored row. Resolves to the error message for the caller's cell.
+  // shows the stored row, or follow redirectTo when the edit created a new
+  // revision. Resolves to the error message for the caller's cell.
   const run = useCallback(
     async (work: () => Promise<ActionOutcome>): Promise<string | null> => {
       let result: ActionOutcome;
@@ -90,6 +102,10 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
         return "The request did not reach the server. Try again.";
       }
       if (!result.ok) return result.error;
+      if (typeof result.redirectTo === "string" && result.redirectTo !== "") {
+        router.push(result.redirectTo);
+        return null;
+      }
       router.refresh();
       return null;
     },
@@ -162,16 +178,24 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
             <button
               type="button"
               onClick={handleParse}
-              disabled={parsing || nothingToParse}
+              disabled={parsing || nothingToParse || readOnly}
               className={hasLines ? secondaryButton : primaryButton}
-              title={nothingToParse ? "There is no text or PDF to parse" : undefined}
+              title={
+                readOnly
+                  ? "This revision has been superseded"
+                  : nothingToParse
+                    ? "There is no text or PDF to parse"
+                    : undefined
+              }
             >
               {parsing ? "Parsing..." : hasLines ? "Re-parse" : "Parse request"}
             </button>
             <span className="text-xs text-zinc-600">
-              {hasLines
-                ? "Re-parse replaces parsed lines. Confirmed, custom, and removed lines are kept."
-                : "Extracts one line per item with its source span. Blanks are flagged, never filled."}
+              {readOnly
+                ? "Read-only. This revision was edited after its RFQs went out; the newer revision holds the current lines."
+                : hasLines
+                  ? "Re-parse replaces parsed lines. Confirmed, custom, and removed lines are kept."
+                  : "Extracts one line per item with its source span. Blanks are flagged, never filled."}
             </span>
           </div>
         </div>
@@ -180,15 +204,24 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!canConfirm.ok || confirmPending || parsing}
+            disabled={!canConfirm.ok || confirmPending || parsing || readOnly}
             className={primaryButton}
+            title={readOnly ? "This revision has been superseded" : undefined}
           >
             {confirmPending ? "Confirming..." : BEFORE_REVIEW.has(request.status) ? "Confirm request" : "Confirm again"}
           </button>
-          {!BEFORE_REVIEW.has(request.status) ? (
+          {readOnly ? (
+            <span className="text-xs text-amber-800">
+              Superseded. Edit{" "}
+              <Link href={`/requests/${supersededBy}`} className="font-medium underline hover:text-amber-700">
+                the newer revision
+              </Link>{" "}
+              instead.
+            </span>
+          ) : !BEFORE_REVIEW.has(request.status) ? (
             <span className="text-xs text-emerald-700">Reviewed. Edits here still apply to this revision.</span>
           ) : null}
-          {!canConfirm.ok && canConfirm.problems.length > 0 ? (
+          {!readOnly && !canConfirm.ok && canConfirm.problems.length > 0 ? (
             <ul className="max-w-md list-disc pl-5 text-right text-xs text-amber-800 marker:text-amber-500">
               {canConfirm.problems.map((problem) => (
                 <li key={problem} className="text-left">
@@ -197,7 +230,7 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
               ))}
             </ul>
           ) : null}
-          {!canConfirm.ok && canConfirm.problems.length === 0 ? (
+          {!readOnly && !canConfirm.ok && canConfirm.problems.length === 0 ? (
             <span className="text-xs text-amber-800">Every line needs a quantity, a unit, and a catalog link or custom mark.</span>
           ) : null}
         </div>
@@ -225,7 +258,7 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              {mergePair ? (
+              {readOnly ? null : mergePair ? (
                 <button type="button" onClick={handleMerge} disabled={mergePending} className={secondaryButton}>
                   {mergePending ? "Merging..." : `Merge ${mergePair[1].line_no} into ${mergePair[0].line_no}`}
                 </button>
@@ -257,9 +290,10 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
             onClearFlags={onClearFlags}
             onSetCustom={onSetCustom}
             onLink={onLink}
+            readOnly={readOnly}
           />
 
-          <AddLineRow requestId={request.id} run={run} />
+          {readOnly ? null : <AddLineRow requestId={request.id} run={run} />}
         </section>
       </main>
 

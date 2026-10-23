@@ -12,7 +12,24 @@ export type BrokerSession = {
   userId: string;
   brokerId: string;
   email: string | null;
+  /**
+   * The person's name from Supabase Auth user_metadata (full_name, else name),
+   * or null when the account carries none. Signs RFQ bodies (senderNameFor in
+   * routing.ts falls back to "Caleb"). Never the broker company's name.
+   */
+  displayName: string | null;
 };
+
+/** user_metadata.full_name, else user_metadata.name, trimmed; null when neither is a non-blank string. */
+export function displayNameFrom(metadata: unknown): string | null {
+  if (metadata === null || typeof metadata !== "object") return null;
+  const record = metadata as { [key: string]: unknown };
+  for (const key of ["full_name", "name"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return null;
+}
 
 /**
  * Returns the session for the signed-in user, or null when nobody is signed in.
@@ -45,6 +62,7 @@ export async function getBrokerOrNull(): Promise<BrokerSession | null> {
     userId: user.id,
     brokerId: membership.broker_id,
     email: user.email ?? null,
+    displayName: displayNameFrom(user.user_metadata),
   };
 }
 

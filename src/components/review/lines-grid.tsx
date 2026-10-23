@@ -12,6 +12,9 @@
 //
 // The parser never fills a blank; neither does this grid. A blank cell stays
 // blank until the broker types a value.
+//
+// readOnly (a superseded revision, AC-8.4) locks every cell and hides the row
+// actions the same way a removed line is locked; isLocked() is the one rule.
 
 import { createColumnHelper, tableFeatures, useTable, type CellContext } from "@tanstack/react-table";
 import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -84,7 +87,13 @@ type GridMeta = LineActions & {
   checkedIds: ReadonlySet<string>;
   onSelect: (lineId: string) => void;
   onToggleChecked: (lineId: string) => void;
+  readOnly: boolean;
 };
+
+/** A cell is locked when the grid is read-only or the line is removed. */
+function isLocked(meta: GridMeta, line: Pick<ReviewLine, "status">): boolean {
+  return meta.readOnly || line.status === "removed";
+}
 
 export const CATEGORY_LABELS: Record<MaterialCategory, string> = {
   hss_square: "HSS square",
@@ -310,7 +319,7 @@ function parseQty(raw: string): { value: number | null } | { error: string } {
 function CheckCell(info: Ctx<unknown>) {
   const meta = metaOf(info);
   const line = info.row.original;
-  const removed = line.status === "removed";
+  const removed = isLocked(meta, line);
   return (
     <input
       type="checkbox"
@@ -345,7 +354,7 @@ function DescriptionCell(info: Ctx<string>) {
       key={line.description}
       value={line.description}
       mode="text"
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Description, line ${line.line_no}`}
       widthClass="min-w-[14rem]"
       hint={line.raw_text.trim() !== "" && line.raw_text.trim() !== line.description ? line.raw_text.trim() : null}
@@ -364,7 +373,7 @@ function CategoryCell(info: Ctx<MaterialCategory | null>) {
     <SelectCell
       value={line.category}
       options={CATEGORY_OPTIONS}
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Category, line ${line.line_no}`}
       onCommit={(value) => meta.onEdit(line.id, { category: value === null ? null : (value as MaterialCategory) })}
     />
@@ -380,7 +389,7 @@ function QtyCell(info: Ctx<number | null>) {
       key={shown}
       value={shown}
       mode="number"
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Quantity, line ${line.line_no}`}
       widthClass="w-20"
       onCommit={async (raw) => {
@@ -399,7 +408,7 @@ function UnitCell(info: Ctx<LineUnit | null>) {
     <SelectCell
       value={line.unit}
       options={UNIT_OPTIONS}
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Unit, line ${line.line_no}`}
       onCommit={(value) => meta.onEdit(line.id, { unit: value === null ? null : (value as LineUnit) })}
     />
@@ -416,7 +425,7 @@ function LengthCell(info: Ctx<string | null>) {
       key={shown}
       value={shown}
       mode="text"
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Length, line ${line.line_no}`}
       placeholder="40' or 480&quot;"
       widthClass="w-28"
@@ -435,7 +444,7 @@ function GradeCell(info: Ctx<string | null>) {
       key={shown}
       value={shown}
       mode="text"
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Grade or spec, line ${line.line_no}`}
       widthClass="w-28"
       onCommit={(raw) => meta.onEdit(line.id, { grade_spec: textOrNull(raw) })}
@@ -449,7 +458,7 @@ function CutToLengthCell(info: Ctx<boolean>) {
   return (
     <CheckboxCell
       checked={line.cut_to_length}
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Cut to length, line ${line.line_no}`}
       onCommit={(checked) => meta.onEdit(line.id, { cut_to_length: checked })}
     />
@@ -465,7 +474,7 @@ function NotesCell(info: Ctx<string | null>) {
       key={shown}
       value={shown}
       mode="text"
-      disabled={line.status === "removed"}
+      disabled={isLocked(meta, line)}
       label={`Delivery notes, line ${line.line_no}`}
       widthClass="min-w-[10rem]"
       onCommit={(raw) => meta.onEdit(line.id, { delivery_notes: textOrNull(raw) })}
@@ -480,7 +489,7 @@ function CatalogCell(info: Ctx<unknown>) {
   const meta = metaOf(info);
   const line = info.row.original;
   const commit = useCommit((custom: boolean) => meta.onSetCustom(line.id, custom));
-  const removed = line.status === "removed";
+  const removed = isLocked(meta, line);
 
   if (line.catalog_item_id !== null) {
     return (
@@ -533,7 +542,7 @@ function FlagsCell(info: Ctx<unknown>) {
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-1">
         <FlagChips flags={line.flags} />
-        {line.flags.length > 0 && line.status !== "removed" ? (
+        {line.flags.length > 0 && !isLocked(meta, line) ? (
           <button
             type="button"
             disabled={commit.saving}
@@ -564,6 +573,7 @@ function ActionsCell(info: Ctx<unknown>) {
   if (line.status === "removed") {
     return <span className="text-xs text-zinc-400">removed</span>;
   }
+  if (meta.readOnly) return null;
   return (
     <div className="flex flex-col items-start gap-1">
       <button
@@ -614,6 +624,8 @@ export type LinesGridProps = LineActions & {
   checkedIds: ReadonlySet<string>;
   onSelect: (lineId: string) => void;
   onToggleChecked: (lineId: string) => void;
+  /** Lock every cell and hide the row actions (a superseded revision). */
+  readOnly?: boolean;
 };
 
 export function LinesGrid({
@@ -627,10 +639,11 @@ export function LinesGrid({
   onClearFlags,
   onSetCustom,
   onLink,
+  readOnly = false,
 }: LinesGridProps) {
   const meta = useMemo<GridMeta>(
-    () => ({ selectedLineId, checkedIds, onSelect, onToggleChecked, onEdit, onRemove, onClearFlags, onSetCustom, onLink }),
-    [selectedLineId, checkedIds, onSelect, onToggleChecked, onEdit, onRemove, onClearFlags, onSetCustom, onLink],
+    () => ({ selectedLineId, checkedIds, onSelect, onToggleChecked, onEdit, onRemove, onClearFlags, onSetCustom, onLink, readOnly }),
+    [selectedLineId, checkedIds, onSelect, onToggleChecked, onEdit, onRemove, onClearFlags, onSetCustom, onLink, readOnly],
   );
 
   const table = useTable({
