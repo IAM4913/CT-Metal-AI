@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# the template is committed on purpose: SETUP.md and src/lib/env.ts tell you to copy it
+!.env.local.example
 
 # vercel
 .vercel
