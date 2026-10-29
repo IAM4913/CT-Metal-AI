@@ -176,6 +176,44 @@ describe("reconcileExactness", () => {
   });
 });
 
+describe("selectionBoundChange", () => {
+  const row = {
+    request_line_id: LINE_ID,
+    offered_catalog_item_id: "33333333-3333-4333-8333-000000000003",
+    is_exact_match: true,
+    alternate_types: [] as AlternateType[],
+    offered_desc: "W12x26",
+  };
+
+  it("is bound by the request line, the catalog link, the exactness, and the alternate types", async () => {
+    const { selectionBoundChange } = await import("./offers");
+    expect(selectionBoundChange(row, { ...row, request_line_id: "11111111-1111-4111-8111-000000000002" })).toBe(true);
+    expect(selectionBoundChange(row, { ...row, offered_catalog_item_id: null })).toBe(true);
+    expect(selectionBoundChange(row, { ...row, is_exact_match: false })).toBe(true);
+    expect(selectionBoundChange(row, { ...row, is_exact_match: false, alternate_types: ["wall"] })).toBe(true);
+    const flagged = { ...row, is_exact_match: false, alternate_types: ["wall", "length"] as AlternateType[] };
+    expect(selectionBoundChange(flagged, { ...flagged, alternate_types: ["length", "wall"] })).toBe(false);
+    expect(selectionBoundChange(flagged, { ...flagged, alternate_types: ["length"] })).toBe(true);
+  });
+
+  it("is bound by a written length or sheet size, not by other wording", async () => {
+    const { selectionBoundChange } = await import("./offers");
+    expect(selectionBoundChange(row, { ...row, offered_desc: "W12x26 x 40'" })).toBe(true);
+    expect(selectionBoundChange({ ...row, offered_desc: "W12x26 x 40'" }, { ...row, offered_desc: "W12x26 40 ft" })).toBe(false);
+    expect(selectionBoundChange(row, { ...row, offered_desc: "W12x26 A992" })).toBe(false);
+    const plate = { ...row, offered_desc: "PL3/8 48x96" };
+    expect(selectionBoundChange(plate, { ...plate, offered_desc: "PL3/8 60x120" })).toBe(true);
+    expect(selectionBoundChange(plate, { ...plate, offered_desc: "PL3/8 48 x 96 A36" })).toBe(false);
+  });
+
+  it("is not bound by a price, quantity, or date (those are compared at confirm time)", async () => {
+    const { selectionBoundChange, SELECTION_BOUND_ERROR } = await import("./offers");
+    expect(selectionBoundChange(row, { ...row })).toBe(false);
+    expect(SELECTION_BOUND_ERROR).toContain("Compare tab");
+    expect(SELECTION_BOUND_ERROR).not.toContain(String.fromCharCode(0x2014));
+  });
+});
+
 describe("recomputeOfferLineFlags", () => {
   const line = { request_line_id: LINE_ID, unit_price: null, available_qty: null, availability: "unknown" as const, flags: ["missing_price", "ambiguous_basis", "junk"] };
 

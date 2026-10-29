@@ -1,7 +1,7 @@
 "use server";
 
 // Server actions for the request workspace: Review (PRD FR-2, FR-3), Route
-// (FR-6), RFQs (FR-7, FR-8), and Offers (FR-9). Thin wrappers: each one checks the session,
+// (FR-6), RFQs (FR-7, FR-8), Offers (FR-9), and Compare (FR-10, FR-11). Thin wrappers: each one checks the session,
 // validates its arguments with Zod, calls the lib function in src/lib/server,
 // revalidates the request pages, and returns a plain result. Nothing here
 // throws to the client: a failure is logged server-side and comes back as
@@ -58,6 +58,15 @@ import {
   type IngestInput,
   type OpenRfq,
 } from "@/lib/server/offers";
+import {
+  confirmPurchase,
+  purchaseInputSchema,
+  selectionQtySchema,
+  selectOfferLine,
+  selectOfferLineInputSchema,
+  unselectOfferLine,
+  updateSelectionQty,
+} from "@/lib/server/compare";
 import { findChildRevision, SupersededError } from "@/lib/server/revisions";
 import { retryRfq, sendAll } from "@/lib/server/rfq-send";
 import {
@@ -604,4 +613,71 @@ async function requestIdForOffer(session: BrokerSession, offerId: string): Promi
   if (error) throw new Error(`Could not read offer: ${error.message}`);
   if (!data) throw new Error("Offer not found");
   return requestIdForRfq(session, data.rfq_id);
+}
+
+// ---------------------------------------------------------------------------
+// Compare (Compare tab, PRD FR-10, FR-11)
+// ---------------------------------------------------------------------------
+
+/**
+ * Select an offer line for a request line (selectOfferLineInputSchema in
+ * src/lib/server/compare.ts: requestLineId, offerLineId, qty in the request
+ * line's unit, note, confirmAlternate). An alternate without confirmAlternate
+ * is refused with a message naming the difference (PRD section 8 rule 3); the
+ * dialog resubmits with confirmAlternate true. Selecting the same offer line
+ * again replaces its quantity.
+ */
+export async function selectOfferLineAction(input: unknown): Promise<ActionResult<{ selectionId: string }>> {
+  const session = await requireBroker();
+  return attempt("selectOfferLine", async () => {
+    const parsed = selectOfferLineInputSchema.parse(input);
+    const { selectionId, requestId } = await selectOfferLine(session, parsed);
+    revalidateRequest(requestId);
+    return { selectionId };
+  });
+}
+
+/** Remove one selection. Refused once a purchase holds it. */
+export async function unselectOfferLineAction(selectionId: string): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("unselectOfferLine", async () => {
+    const id = idSchema.parse(selectionId);
+    const { requestId } = await unselectOfferLine(session, id);
+    revalidateRequest(requestId);
+    return {};
+  });
+}
+
+/** Change one selection's quantity (a split adjusted). Refused once a purchase holds it. */
+export async function updateSelectionQtyAction(selectionId: string, qty: number): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("updateSelectionQty", async () => {
+    const id = idSchema.parse(selectionId);
+    const quantity = selectionQtySchema.parse(qty);
+    const { requestId } = await updateSelectionQty(session, id, quantity);
+    revalidateRequest(requestId);
+    return {};
+  });
+}
+
+/**
+ * AC-11.1: the explicit Confirm purchase. Input per purchaseInputSchema
+ * ({ poNumber, notes }, both nullable). Creates one purchase per branch from
+ * the selections no purchase holds yet and moves the request to "sourced".
+ * The result carries the new purchase ids; redirectTo is left unset until the
+ * history page (Step 8) exists, so the client stays on the Compare tab.
+ */
+export async function confirmPurchaseAction(
+  requestId: string,
+  input: unknown,
+): Promise<ActionResult<{ purchaseIds: string[] } & Redirecting>> {
+  const session = await requireBroker();
+  return attempt("confirmPurchase", async () => {
+    const id = idSchema.parse(requestId);
+    const parsed = purchaseInputSchema.parse(input);
+    const { purchaseIds } = await confirmPurchase(session, id, parsed);
+    revalidateRequest(id);
+    revalidatePath("/history");
+    return { purchaseIds };
+  });
 }

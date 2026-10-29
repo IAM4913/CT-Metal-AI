@@ -59,6 +59,7 @@
 
 import { z } from "zod";
 import { normalizeAlias } from "@/lib/catalog/normalize";
+import { offeredLengthFt, offeredSheetSize } from "@/lib/compare/build";
 import { createAdminClient, type Tables, type TablesInsert, type TablesUpdate } from "@/lib/db/client";
 import type { Json } from "@/lib/db/types";
 import {
@@ -378,6 +379,30 @@ export function reconcileExactness(
     return { is_exact_match: patch.is_exact_match, alternate_types: patch.is_exact_match ? [] : current.alternate_types };
   }
   return { is_exact_match: current.is_exact_match, alternate_types: current.alternate_types };
+}
+
+export const SELECTION_BOUND_ERROR =
+  "This line has been selected on the Compare tab. Clear that selection before moving it or changing its match.";
+
+type SelectionBoundFields = Pick<OfferLineRow, "request_line_id" | "offered_catalog_item_id" | "is_exact_match" | "alternate_types" | "offered_desc">;
+
+/**
+ * Whether an edit changes what a sourcing selection (Step 7) on the line stands
+ * for: the request line it answers, the catalog item it is linked to, its
+ * exactness or alternate types, or the length or sheet size written in its
+ * description (the Compare tab reads those as alternates too). Such an edit is
+ * refused while a selection points at the line (SELECTION_BOUND_ERROR), so a
+ * selection can never end up under the wrong line or on an alternate nobody
+ * confirmed. A price, quantity, availability, or date edit is not bound: a
+ * purchase recomputes its totals from the current values.
+ */
+export function selectionBoundChange(before: SelectionBoundFields, after: SelectionBoundFields): boolean {
+  if (before.request_line_id !== after.request_line_id) return true;
+  if (before.offered_catalog_item_id !== after.offered_catalog_item_id) return true;
+  if (before.is_exact_match !== after.is_exact_match) return true;
+  if (!sameJson([...before.alternate_types].sort(), [...after.alternate_types].sort())) return true;
+  if (offeredLengthFt(before.offered_desc) !== offeredLengthFt(after.offered_desc)) return true;
+  return !sameJson(offeredSheetSize(before.offered_desc), offeredSheetSize(after.offered_desc));
 }
 
 /** Flags of a stored offer line from its values, the judgment flags it carries, and whether its offer is declined. */
@@ -1283,7 +1308,9 @@ const OFFER_LINE_DIFF_KEYS = [
  * recomputed from the new values (judgment flags carried), the catalog link
  * follows a new description, exactness and alternate types are kept
  * consistent (reconcileExactness), and a new request line must belong to the
- * same request. Logs offer_line.updated with before and after.
+ * same request. An edit that changes what a sourcing selection on the line
+ * stands for (selectionBoundChange) is refused while one exists. Logs
+ * offer_line.updated with before and after.
  */
 export async function updateOfferLine(session: BrokerSession, offerLineId: string, patch: OfferLinePatch): Promise<OfferLineRow> {
   const before = await loadOfferLine(session, offerLineId);
@@ -1331,6 +1358,9 @@ export async function updateOfferLine(session: BrokerSession, offerLineId: strin
 
   const diff = diffRows(before, candidate, OFFER_LINE_DIFF_KEYS);
   if (diff.changed.length === 0) return before;
+  if (selectionBoundChange(before, candidate)) {
+    await assertNoSelections(session, [offerLineId], SELECTION_BOUND_ERROR);
+  }
 
   const update: Record<string, unknown> = {};
   for (const key of diff.changed) update[key] = candidate[key];
