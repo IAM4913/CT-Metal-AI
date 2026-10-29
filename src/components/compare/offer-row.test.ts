@@ -1,13 +1,19 @@
 // The Compare tab's text rules and the select default (offer-row.tsx), the
 // pure parts of the row. Rendering is not exercised here (no database, no
-// browser in this session); each helper is the one the cells call.
+// browser in this session); each helper is the one the cells call. TZ is
+// pinned to a US zone before any Date is built so the expiry day test is a
+// real one: midnight UTC is the evening before in Chicago.
+
+process.env.TZ = "America/Chicago";
 
 import { describe, expect, it } from "vitest";
 import {
   changedList,
   defaultSelectQty,
   earlyPayText,
+  expiryText,
   extendedText,
+  formatDay,
   formatQty,
   freightText,
   perFootText,
@@ -103,6 +109,24 @@ describe("requestedItemTitle (PRD section 8: canonical or raw)", () => {
   it("falls back to the description, then a marker, when there is no raw text", () => {
     expect(requestedItemTitle({ designation: null, raw_text: "", description: "channel" })).toEqual({ title: "channel", secondary: null });
     expect(requestedItemTitle({ designation: null, raw_text: "  ", description: "  " })).toEqual({ title: "(no text)", secondary: null });
+  });
+});
+
+describe("expiryText (the Expires column shows the stored UTC day, as the Offers tab does)", () => {
+  it("renders a calendar-day expiry stored at 00:00 UTC on that day under a US zone", () => {
+    expect(process.env.TZ).toBe("America/Chicago");
+    expect(expiryText("2026-11-30T00:00:00.000Z")).toBe("Nov 30, 2026");
+    expect(expiryText("2026-11-30T00:00:00+00:00")).toBe("Nov 30, 2026");
+    expect(expiryText("2026-11-30")).toBe("Nov 30, 2026");
+  });
+
+  it("is unknown when there is no expiry", () => {
+    expect(expiryText(null)).toBe("unknown");
+  });
+
+  it("leaves the date-only ready date on formatDay, which reads it as a local day", () => {
+    expect(formatDay("2026-11-17")).toBe("Nov 17, 2026");
+    expect(formatDay(null)).toBe("unknown");
   });
 });
 

@@ -168,7 +168,18 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
   const hasPdf = attachments.some((a) => a.mime === "application/pdf");
   const nothingToParse = request.source_text.trim() === "" && !hasPdf;
   const hasLines = lines.some((line) => line.status !== "removed");
+  const hasParsedLine = lines.some((line) => line.status === "parsed");
+  const confirmed = !BEFORE_REVIEW.has(request.status);
   const parsing = request.status === "parsing" || parsePending;
+  // A re-parse keeps every line that is not "parsed" (reparseBlockedReason in
+  // src/lib/server/parse-request.ts), so once the request is confirmed, or
+  // every live line is confirmed or custom, it would only double the lines.
+  const reparseBlocked = confirmed || (hasLines && !hasParsedLine);
+  const reparseBlockedTitle = confirmed
+    ? "The request is confirmed; a re-parse would only add a second copy of every line. Edit the lines here instead."
+    : "Every line is confirmed or custom and would be kept; remove the lines to replace first.";
+  // Confirm again only does something while a parsed line is waiting for it.
+  const nothingToConfirm = confirmed && !hasParsedLine;
 
   return (
     <div className="flex flex-col gap-6">
@@ -178,14 +189,16 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
             <button
               type="button"
               onClick={handleParse}
-              disabled={parsing || nothingToParse || readOnly}
+              disabled={parsing || nothingToParse || readOnly || reparseBlocked}
               className={hasLines ? secondaryButton : primaryButton}
               title={
                 readOnly
                   ? "This revision has been superseded"
                   : nothingToParse
                     ? "There is no text or PDF to parse"
-                    : undefined
+                    : reparseBlocked
+                      ? reparseBlockedTitle
+                      : undefined
               }
             >
               {parsing ? "Parsing..." : hasLines ? "Re-parse" : "Parse request"}
@@ -193,9 +206,11 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
             <span className="text-xs text-zinc-600">
               {readOnly
                 ? "Read-only. This revision was edited after its RFQs went out; the newer revision holds the current lines."
-                : hasLines
-                  ? "Re-parse replaces parsed lines. Confirmed, custom, and removed lines are kept."
-                  : "Extracts one line per item with its source span. Blanks are flagged, never filled."}
+                : confirmed
+                  ? "Confirmed. A re-parse would keep every confirmed line and add a second copy; edit the lines here instead."
+                  : hasLines
+                    ? "Re-parse replaces parsed lines. Confirmed, custom, and removed lines are kept."
+                    : "Extracts one line per item with its source span. Blanks are flagged, never filled."}
             </span>
           </div>
         </div>
@@ -204,11 +219,17 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={!canConfirm.ok || confirmPending || parsing || readOnly}
+            disabled={!canConfirm.ok || confirmPending || parsing || readOnly || nothingToConfirm}
             className={primaryButton}
-            title={readOnly ? "This revision has been superseded" : undefined}
+            title={
+              readOnly
+                ? "This revision has been superseded"
+                : nothingToConfirm
+                  ? "Every line is already confirmed"
+                  : undefined
+            }
           >
-            {confirmPending ? "Confirming..." : BEFORE_REVIEW.has(request.status) ? "Confirm request" : "Confirm again"}
+            {confirmPending ? "Confirming..." : confirmed ? "Confirm again" : "Confirm request"}
           </button>
           {readOnly ? (
             <span className="text-xs text-amber-800">
@@ -218,8 +239,11 @@ export function ReviewWorkspace({ request, lines, attachments, message, canConfi
               </Link>{" "}
               instead.
             </span>
-          ) : !BEFORE_REVIEW.has(request.status) ? (
-            <span className="text-xs text-emerald-700">Reviewed. Edits here still apply to this revision.</span>
+          ) : confirmed ? (
+            <span className="text-xs text-emerald-700">
+              Reviewed. Edits here still apply to this revision; a line left without a quantity, unit, or catalog link
+              reopens the review.
+            </span>
           ) : null}
           {!readOnly && !canConfirm.ok && canConfirm.problems.length > 0 ? (
             <ul className="max-w-md list-disc pl-5 text-right text-xs text-amber-800 marker:text-amber-500">

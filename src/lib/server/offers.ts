@@ -93,7 +93,7 @@ import { buildOfferUserMessage, OFFER_SYSTEM_PROMPT, type OfferContextLine } fro
 import { EXTRACT_OFFER_LINES, extractOfferLinesOutputSchema, offerFlagValues, type OfferFlag } from "@/lib/parsing/offers-schema";
 import { ATTACHMENTS_BUCKET, removeAttachmentObjects, storeAttachment } from "@/lib/server/attachments";
 import { loadAliasIndex } from "@/lib/server/parse-request";
-import { loadRfq, loadRfqs, SENT_RFQ_STATUSES } from "@/lib/server/routing";
+import { ANSWERED_RFQ_STATUSES, loadRfq, loadRfqs, SENT_RFQ_STATUSES } from "@/lib/server/routing";
 import type { BrokerSession } from "@/lib/server/session";
 
 const PDF_MIME = "application/pdf";
@@ -263,21 +263,23 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** RFQ statuses that count as answered for the request's status. */
-const ANSWERED_RFQ_STATUSES: readonly RfqStatus[] = ["responded", "declined", "closed"];
-
 /**
  * Where the request goes after an offer changed: "collecting" on the first
  * offer against a request whose RFQs went out, "comparing" once every sent RFQ
- * of the revision has responded or declined. Null means no change: a request
- * before its RFQs went out (nothing to collect), one already comparing or
- * past it (never moved backwards), or a revision with no sent RFQ.
+ * of the revision has responded or declined. A request still at reviewed or
+ * rfqs_drafted counts too: sendBlockedReason lets both send, and a partial
+ * send (one draft with no recipient, no lines, or a failed adapter call) leaves
+ * the request there with the other RFQs out, so its first offer must still move
+ * it. Null means no change: a request before Confirm (nothing to collect), one
+ * already comparing or past it (never moved backwards), or a revision with no
+ * sent RFQ.
  */
 export function nextRequestStatus(current: RequestStatus, rfqStatuses: readonly RfqStatus[]): RequestStatus | null {
   const sent = rfqStatuses.filter((status) => SENT_RFQ_STATUSES.includes(status));
   if (sent.length === 0) return null;
   const allAnswered = sent.every((status) => ANSWERED_RFQ_STATUSES.includes(status));
   switch (current) {
+    case "reviewed":
     case "rfqs_drafted":
     case "rfqs_sent":
       return allAnswered ? "comparing" : "collecting";
@@ -1166,8 +1168,6 @@ export async function createManualOffer(session: BrokerSession, input: ManualOff
       }
     }
 
-    await settleRfqStatus(session, rfq.id);
-    await settleRequestStatus(session, rfq.request_id);
     await logActivity(session, "vendor_offer", offerId, "offer.created", {
       source: input.source,
       rfq_id: rfq.id,
@@ -1175,6 +1175,13 @@ export async function createManualOffer(session: BrokerSession, input: ManualOff
       line_count: rows.length,
     });
   });
+
+  // Settled only once the offer row is final (as runExtraction does for an
+  // ingested reply): a settle inside the guard would survive the cleanup that
+  // deletes the offer, leaving the RFQ "responded" and the request collecting
+  // with no offer behind them.
+  await settleRfqStatus(session, rfq.id);
+  await settleRequestStatus(session, rfq.request_id);
 
   return { offerId };
 }

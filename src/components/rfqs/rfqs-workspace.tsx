@@ -115,22 +115,29 @@ export function RfqsWorkspace({ request, rfqs, supersededBy }: RfqsWorkspaceProp
     setConfirming(false);
     setBanner(null);
     startSend(async () => {
-      let result: Awaited<ReturnType<typeof sendAllAction>>;
+      // Refresh on every exit: a send that failed after some RFQs were marked
+      // sent (the messages or activity_log insert) has still changed rows, and
+      // without the refresh those RFQs keep showing as drafts with Send all
+      // enabled until the page is reloaded.
       try {
-        result = await sendAllAction(request.id);
-      } catch (error) {
-        console.error("[rfqs] send all failed", error);
-        setBanner({ tone: "error", text: "The request did not reach the server. Try again." });
-        return;
+        let result: Awaited<ReturnType<typeof sendAllAction>>;
+        try {
+          result = await sendAllAction(request.id);
+        } catch (error) {
+          console.error("[rfqs] send all failed", error);
+          setBanner({ tone: "error", text: "The request did not reach the server. Try again." });
+          return;
+        }
+        if (!result.ok) {
+          setBanner({ tone: "error", text: result.error });
+          return;
+        }
+        const outcomes = outcomesOf(result);
+        const anyFailed = outcomes.some((outcome) => outcome.result === "failed" || outcome.result === "skipped_no_recipient");
+        setBanner({ tone: anyFailed ? "error" : "ok", text: summarizeOutcomes(outcomes) });
+      } finally {
+        router.refresh();
       }
-      if (!result.ok) {
-        setBanner({ tone: "error", text: result.error });
-        return;
-      }
-      const outcomes = outcomesOf(result);
-      const anyFailed = outcomes.some((outcome) => outcome.result === "failed" || outcome.result === "skipped_no_recipient");
-      setBanner({ tone: anyFailed ? "error" : "ok", text: summarizeOutcomes(outcomes) });
-      router.refresh();
     });
   }
 

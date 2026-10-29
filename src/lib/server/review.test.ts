@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { Tables } from "@/lib/db/client";
+import { requestStatusValues } from "@/lib/db/enums";
 import {
+  affectsConfirmGate,
   affectsDrafts,
   aliasCarriesSize,
   aliasToLearn,
   canConfirm,
+  CONFIRMED_UNSENT_STATUSES,
   diffLine,
   mergeLineValues,
   recomputeFlags,
   remapSourceSpan,
   revisionAttachmentRows,
   revisionLineRows,
+  statusAfterConfirm,
   type ConfirmableLine,
   type LineRow,
   type MergeSource,
@@ -73,6 +77,44 @@ describe("canConfirm (AC-3.3)", () => {
 
   it("does not require a grade", () => {
     expect(canConfirm([line()]).ok).toBe(true);
+  });
+});
+
+describe("affectsConfirmGate (a line edit that can reopen the AC-3.3 gate)", () => {
+  it("is true for a quantity, unit, catalog link, or status change", () => {
+    expect(affectsConfirmGate({ changed: ["qty"] })).toBe(true);
+    expect(affectsConfirmGate({ changed: ["unit"] })).toBe(true);
+    expect(affectsConfirmGate({ changed: ["catalog_item_id"] })).toBe(true);
+    expect(affectsConfirmGate({ changed: ["status"] })).toBe(true);
+    expect(affectsConfirmGate({ changed: ["description", "qty"] })).toBe(true);
+  });
+
+  it("is false for a change canConfirm does not read", () => {
+    expect(affectsConfirmGate({ changed: [] })).toBe(false);
+    expect(affectsConfirmGate({ changed: ["description", "grade_spec", "length_text", "length_ft", "flags", "delivery_notes"] })).toBe(false);
+  });
+});
+
+describe("statusAfterConfirm (Confirm never moves a request backwards)", () => {
+  it("moves a request before Confirm to reviewed", () => {
+    for (const status of ["new", "parsing", "needs_review"] as const) {
+      expect(statusAfterConfirm(status), status).toBe("reviewed");
+    }
+  });
+
+  it("keeps the status of a request already confirmed, so Confirm again on rfqs_drafted stays rfqs_drafted", () => {
+    for (const status of ["reviewed", "rfqs_drafted", "rfqs_sent", "collecting", "comparing", "sourced", "closed"] as const) {
+      expect(statusAfterConfirm(status), status).toBeNull();
+    }
+  });
+
+  it("decides every request status the database knows", () => {
+    for (const status of requestStatusValues) {
+      const next = statusAfterConfirm(status);
+      expect(next === null || requestStatusValues.includes(next)).toBe(true);
+    }
+    expect(CONFIRMED_UNSENT_STATUSES).toEqual(["reviewed", "rfqs_drafted"]);
+    for (const status of CONFIRMED_UNSENT_STATUSES) expect(statusAfterConfirm(status)).toBeNull();
   });
 });
 

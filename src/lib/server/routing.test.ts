@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Tables } from "@/lib/db/client";
 import { rfqStatusValues } from "@/lib/db/enums";
 import {
+  ANSWERED_RFQ_STATUSES,
   DEFAULT_SENDER_NAME,
   EDITABLE_RFQ_STATUSES,
   groupLinksByRfq,
@@ -32,6 +33,12 @@ describe("RFQS_TAB_STATUSES (the RFQs tab shows every RFQ of the revision)", () 
   it("splits the statuses into editable and sent with none in both", () => {
     for (const status of EDITABLE_RFQ_STATUSES) expect(SENT_RFQ_STATUSES).not.toContain(status);
     for (const status of SENT_RFQ_STATUSES) expect(EDITABLE_RFQ_STATUSES).not.toContain(status);
+  });
+
+  it("counts every sent status but a still-open one as answered", () => {
+    for (const status of ANSWERED_RFQ_STATUSES) expect(SENT_RFQ_STATUSES).toContain(status);
+    expect(ANSWERED_RFQ_STATUSES).not.toContain("sent");
+    expect(SENT_RFQ_STATUSES.filter((status) => !ANSWERED_RFQ_STATUSES.includes(status))).toEqual(["sent"]);
   });
 });
 

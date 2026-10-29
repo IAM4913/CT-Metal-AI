@@ -36,17 +36,26 @@ describe("nextRequestStatus", () => {
   });
 
   it("counts a partially sent revision (some drafts still unsent) by its sent RFQs only", () => {
-    expect(nextRequestStatus("rfqs_drafted", ["draft", "responded"])).toBe("comparing");
-    expect(nextRequestStatus("rfqs_drafted", ["draft", "sent", "responded"])).toBe("collecting");
-    expect(nextRequestStatus("rfqs_drafted", ["draft", "failed"])).toBeNull();
+    for (const status of ["reviewed", "rfqs_drafted"] as const) {
+      expect(nextRequestStatus(status, ["draft", "responded"]), status).toBe("comparing");
+      expect(nextRequestStatus(status, ["draft", "sent", "responded"]), status).toBe("collecting");
+      expect(nextRequestStatus(status, ["draft", "failed"]), status).toBeNull();
+    }
   });
 
-  it("never moves a request backwards or before its RFQs went out", () => {
-    for (const status of ["comparing", "sourced", "closed", "new", "parsing", "needs_review", "reviewed"] as const) {
+  it("moves a reviewed request whose send was partial (one draft failed) like a drafted one", () => {
+    expect(nextRequestStatus("reviewed", ["responded", "failed"])).toBe("comparing");
+    expect(nextRequestStatus("reviewed", ["responded", "sent"])).toBe("collecting");
+    expect(nextRequestStatus("reviewed", ["responded"])).toBe("comparing");
+  });
+
+  it("never moves a request backwards or before Confirm", () => {
+    for (const status of ["comparing", "sourced", "closed", "new", "parsing", "needs_review"] as const) {
       expect(nextRequestStatus(status, ["responded"]), status).toBeNull();
       expect(nextRequestStatus(status, ["responded", "sent"]), status).toBeNull();
     }
     expect(nextRequestStatus("rfqs_sent", [])).toBeNull();
+    expect(nextRequestStatus("reviewed", ["draft", "failed"])).toBeNull();
   });
 
   it("decides every request status the database knows", () => {

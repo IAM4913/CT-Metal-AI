@@ -142,6 +142,8 @@ export function RouteWorkspace({ request, lines, branches, supersededBy }: Route
     shownLines
       .filter((line) => line.selected_branch_ids.includes(branchId))
       .every((line) => line.locked_branch_ids.includes(branchId));
+  // Every recipient's RFQ is already sent: there is no draft to generate.
+  const allSent = recipients.length > 0 && recipients.every((branch) => lockedEverywhere(branch.branch_id));
 
   return (
     <div className="flex flex-col gap-6">
@@ -252,9 +254,9 @@ export function RouteWorkspace({ request, lines, branches, supersededBy }: Route
             <button
               type="button"
               onClick={generateDrafts}
-              disabled={pending || recipients.length === 0 || readOnly}
+              disabled={pending || recipients.length === 0 || readOnly || allSent}
               className={primaryButton}
-              title={readOnly ? "This revision has been superseded" : undefined}
+              title={readOnly ? "This revision has been superseded" : allSent ? "Every RFQ is already sent" : undefined}
             >
               {pending ? "Working..." : "Generate drafts"}
             </button>
@@ -265,6 +267,15 @@ export function RouteWorkspace({ request, lines, branches, supersededBy }: Route
               <p className="text-xs text-amber-800">
                 The request is not confirmed yet. Drafts can be prepared now; confirm it on the Review tab before
                 sending.
+              </p>
+            ) : null}
+            {!readOnly && allSent ? (
+              <p className="text-xs text-zinc-600">
+                Every RFQ is already sent. Check another branch above to draft a new one; see them on the{" "}
+                <Link href={`/requests/${request.id}/rfqs`} className="font-medium underline hover:text-zinc-900">
+                  RFQs tab
+                </Link>
+                .
               </p>
             ) : null}
           </div>

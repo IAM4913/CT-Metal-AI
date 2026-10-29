@@ -66,6 +66,9 @@ export const EDITABLE_RFQ_STATUSES: readonly RfqStatus[] = ["draft", "queued", "
 /** Statuses meaning the RFQ went out (AC-8.4 freezes the request behind them). */
 export const SENT_RFQ_STATUSES: readonly RfqStatus[] = ["sent", "responded", "declined", "closed"];
 
+/** Sent statuses that count as answered for the request's status (nextRequestStatus in offers.ts, requestStatusAfterSend in rfq-send.ts). */
+export const ANSWERED_RFQ_STATUSES: readonly RfqStatus[] = ["responded", "declined", "closed"];
+
 /**
  * Every status the RFQs tab shows: the editable drafts, and every RFQ that
  * went out, read-only (sent, responded, declined, closed). An answered RFQ
@@ -251,20 +254,23 @@ export async function updateDraft(session: BrokerSession, rfqId: string, patch: 
 
 /**
  * Move a reviewed request to rfqs_drafted once at least one draft exists.
- * Throws when the request has not been confirmed yet (AC-3.3 gate) or has no
- * drafts; does nothing when the request is already past rfqs_drafted.
+ * Throws when the request has not been confirmed yet (AC-3.3 gate) or, at
+ * reviewed, has no drafts. Does nothing when the request is already at or past
+ * rfqs_drafted: the status checks come before the draft check, so a request
+ * whose RFQs have all been sent (no editable draft left) is a no-op, not a
+ * "route a line first" error that contradicts the locked branches on screen.
  */
 export async function markRequestDrafted(session: BrokerSession, requestId: string): Promise<void> {
   const request = await loadRequest(session, requestId);
   await assertNotSuperseded(session, requestId);
-  const drafts = await loadRfqs(session, requestId, request.revision, EDITABLE_RFQ_STATUSES);
-  if (drafts.length === 0) {
-    throw new Error("Route at least one line to a vendor first.");
-  }
   if (request.status === "new" || request.status === "parsing" || request.status === "needs_review") {
     throw new Error("Confirm the request on the Review tab before generating drafts.");
   }
   if (request.status !== "reviewed") return;
+  const drafts = await loadRfqs(session, requestId, request.revision, EDITABLE_RFQ_STATUSES);
+  if (drafts.length === 0) {
+    throw new Error("Route at least one line to a vendor first.");
+  }
 
   const { error } = await session.supabase
     .from("requests")

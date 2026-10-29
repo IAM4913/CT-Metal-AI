@@ -11,7 +11,12 @@
 //
 // canConfirm() is the AC-3.3 gate and is pure: every line that is not removed
 // needs a quantity, a unit, and either a catalog link or the explicit "custom"
-// status. Grade may stay blank.
+// status. Grade may stay blank. The gate stays shut after Confirm too: a line
+// edit or addition that leaves a reviewed or rfqs_drafted request with an
+// incomplete line (reopenReviewGate, after every write that touches a gate
+// field, affectsConfirmGate) sends the request back to needs_review, where
+// sendBlockedReason refuses to send, until Confirm runs again. Past
+// rfqs_drafted an edit lands on a new revision, which starts at needs_review.
 //
 // linkLineToItem() also saves the description the broker linked as a learned
 // alias for that item (AC-3.5), scoped to this broker. Only an unmatched line
@@ -53,6 +58,7 @@ import {
   requestLineFlagSchema,
   type MaterialCategory,
   type RequestLineFlag,
+  type RequestStatus,
 } from "@/lib/db/enums";
 import { computeLineFlags, orderFlags } from "@/lib/parsing/flags";
 import { parseLengthFt } from "@/lib/parsing/length";
@@ -310,6 +316,31 @@ export function affectsDrafts(
   return diff.changed.some((key) => DRAFT_FIELDS.has(key));
 }
 
+/** The line fields canConfirm reads. */
+const CONFIRM_GATE_FIELDS: ReadonlySet<DiffKey> = new Set<DiffKey>(["qty", "unit", "catalog_item_id", "status"]);
+
+/** Whether a line change can alter what canConfirm says: a quantity, unit, catalog link, or status changed. Pure. */
+export function affectsConfirmGate(diff: Pick<LineDiff, "changed">): boolean {
+  return diff.changed.some((key) => CONFIRM_GATE_FIELDS.has(key));
+}
+
+/** Request statuses after Confirm and before any RFQ went out; the AC-3.3 gate can still reopen here. */
+export const CONFIRMED_UNSENT_STATUSES: readonly RequestStatus[] = ["reviewed", "rfqs_drafted"];
+
+/** Request statuses Confirm moves to reviewed from; a later Confirm (new lines after a Generate drafts) leaves the status alone. */
+export const CONFIRMABLE_FROM_STATUSES: readonly RequestStatus[] = ["new", "parsing", "needs_review"];
+
+/**
+ * The request status to write when Confirm passes, pure: "reviewed" from a
+ * status before Confirm, else null (keep the current one). Confirm again on an
+ * rfqs_drafted request confirms its new lines without moving it back to
+ * reviewed; the statuses after Confirm are the send pipeline's and only move
+ * forward.
+ */
+export function statusAfterConfirm(current: RequestStatus): RequestStatus | null {
+  return CONFIRMABLE_FROM_STATUSES.includes(current) ? "reviewed" : null;
+}
+
 // ---------------------------------------------------------------------------
 // Line edits
 // ---------------------------------------------------------------------------
@@ -396,6 +427,7 @@ export async function addLine(session: BrokerSession, requestId: string, input: 
     throw new Error(`Could not add the line: ${error.message}`);
   }
   await logLine(session, data.id, "request_line.added", { after: pickDiffFields(data) });
+  await reopenReviewGate(session, requestId);
   return data;
 }
 
@@ -461,14 +493,9 @@ export async function clearLineFlags(session: BrokerSession, lineId: string): Pr
   return writeLineChange(session, before, after, "request_line.flags_cleared");
 }
 
-/**
- * AC-3.3 gate plus the status change: every live parsed line becomes
- * confirmed and the request moves to "reviewed". Throws with the problems when
- * canConfirm() says no.
- */
-export async function confirmRequest(session: BrokerSession, requestId: string): Promise<{ lineCount: number }> {
-  await assertRequestVisible(session, requestId);
-  const { data: lines, error } = await session.supabase
+/** The fields canConfirm reads, for every line of the request, in line_no order. */
+export async function loadConfirmableLines(session: BrokerSession, requestId: string): Promise<ConfirmableLine[]> {
+  const { data, error } = await session.supabase
     .from("request_lines")
     .select("id, line_no, qty, unit, catalog_item_id, status")
     .eq("broker_id", session.brokerId)
@@ -477,8 +504,21 @@ export async function confirmRequest(session: BrokerSession, requestId: string):
   if (error) {
     throw new Error(`Could not read request lines: ${error.message}`);
   }
+  return data ?? [];
+}
 
-  const check = canConfirm(lines ?? []);
+/**
+ * AC-3.3 gate plus the status change: every live parsed line becomes
+ * confirmed and a request before Confirm moves to "reviewed"
+ * (statusAfterConfirm; a request already at or past reviewed keeps its
+ * status, so Confirm again never moves rfqs_drafted backwards). Throws with
+ * the problems when canConfirm() says no.
+ */
+export async function confirmRequest(session: BrokerSession, requestId: string): Promise<{ lineCount: number }> {
+  const request = await loadRequest(session, requestId);
+  const lines = await loadConfirmableLines(session, requestId);
+
+  const check = canConfirm(lines);
   if (!check.ok) {
     throw new Error(`The request cannot be confirmed yet. ${check.problems.join(" ")}`);
   }
@@ -493,17 +533,24 @@ export async function confirmRequest(session: BrokerSession, requestId: string):
     throw new Error(`Could not confirm the lines: ${linesError.message}`);
   }
 
-  const { error: requestError } = await session.supabase
-    .from("requests")
-    .update({ status: "reviewed" })
-    .eq("broker_id", session.brokerId)
-    .eq("id", requestId);
-  if (requestError) {
-    throw new Error(`Could not update the request status: ${requestError.message}`);
+  const next = statusAfterConfirm(request.status);
+  if (next !== null && next !== request.status) {
+    const { error: requestError } = await session.supabase
+      .from("requests")
+      .update({ status: next })
+      .eq("broker_id", session.brokerId)
+      .eq("id", requestId);
+    if (requestError) {
+      throw new Error(`Could not update the request status: ${requestError.message}`);
+    }
   }
 
-  const lineCount = (lines ?? []).filter((line) => line.status !== "removed").length;
-  await logActivity(session, "request", requestId, "request.confirmed", { line_count: lineCount });
+  const lineCount = lines.filter((line) => line.status !== "removed").length;
+  await logActivity(session, "request", requestId, "request.confirmed", {
+    line_count: lineCount,
+    status_before: request.status,
+    status_after: next ?? request.status,
+  });
   return { lineCount };
 }
 
@@ -918,7 +965,38 @@ async function writeLineChange(
     after: diff.after as { [key: string]: Json | undefined },
   });
   if (affectsDrafts(diff, before, data)) await syncDraftsForLine(session, before, data);
+  if (affectsConfirmGate(diff)) await reopenReviewGate(session, before.request_id);
   return data;
+}
+
+/**
+ * AC-3.3 after Confirm: when a reviewed or rfqs_drafted request no longer
+ * passes canConfirm (a line lost its quantity, unit, or catalog link, an
+ * unlinked line lost its custom mark, an incomplete line was added, or every
+ * line was removed), move it back to needs_review and log
+ * request.review_reopened with the problems. sendBlockedReason then refuses
+ * Send all and Retry until Confirm runs again; the drafts stay. Nothing happens
+ * before Confirm (the gate is still ahead) or once an RFQ went out (edits then
+ * land on a new revision, which starts at needs_review).
+ */
+async function reopenReviewGate(session: BrokerSession, requestId: string): Promise<void> {
+  const request = await loadRequest(session, requestId);
+  if (!CONFIRMED_UNSENT_STATUSES.includes(request.status)) return;
+  const check = canConfirm(await loadConfirmableLines(session, requestId));
+  if (check.ok) return;
+
+  const { error } = await session.supabase
+    .from("requests")
+    .update({ status: "needs_review" })
+    .eq("broker_id", session.brokerId)
+    .eq("id", requestId);
+  if (error) {
+    throw new Error(`Could not reopen the review: ${error.message}`);
+  }
+  await logActivity(session, "request", requestId, "request.review_reopened", {
+    status_before: request.status,
+    problems: check.problems,
+  });
 }
 
 /**

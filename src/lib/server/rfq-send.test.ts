@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { requestStatusValues } from "@/lib/db/enums";
+import { requestStatusValues, rfqStatusValues } from "@/lib/db/enums";
 import type { SendOutcome } from "@/lib/rfq/send";
-import { FALLBACK_FROM_EMAIL, mergeOutcomes, NO_LINES_ERROR, partitionByLiveLines, sendBlockedReason } from "./rfq-send";
+import {
+  FALLBACK_FROM_EMAIL,
+  incompleteLinesReason,
+  mergeOutcomes,
+  NO_LINES_ERROR,
+  partitionByLiveLines,
+  requestStatusAfterSend,
+  sendBlockedReason,
+} from "./rfq-send";
+
+const EM_DASH = String.fromCharCode(0x2014);
 
 describe("sendBlockedReason (AC-3.3 before AC-8.1)", () => {
   it("refuses a request that has not been confirmed", () => {
@@ -22,6 +32,66 @@ describe("sendBlockedReason (AC-3.3 before AC-8.1)", () => {
       expect(reason === null || typeof reason === "string").toBe(true);
     }
     expect(requestStatusValues.filter((s) => sendBlockedReason(s) !== null)).toEqual(["new", "parsing", "needs_review"]);
+  });
+});
+
+describe("incompleteLinesReason (the AC-3.3 gate behind the status check)", () => {
+  it("is null when canConfirm found no problem", () => {
+    expect(incompleteLinesReason([])).toBeNull();
+  });
+
+  it("names every problem and points at the Review tab", () => {
+    const reason = incompleteLinesReason(["Line 2 needs a quantity.", "Line 3 needs a unit."]);
+    expect(reason).toContain("Line 2 needs a quantity.");
+    expect(reason).toContain("Line 3 needs a unit.");
+    expect(reason).toContain("Review tab");
+    expect(reason).not.toContain(EM_DASH);
+  });
+});
+
+describe("requestStatusAfterSend", () => {
+  it("moves a reviewed or drafted request to rfqs_sent once every RFQ of the revision went out", () => {
+    for (const status of ["reviewed", "rfqs_drafted"] as const) {
+      expect(requestStatusAfterSend(status, ["sent"]), status).toBe("rfqs_sent");
+      expect(requestStatusAfterSend(status, ["sent", "sent"]), status).toBe("rfqs_sent");
+      expect(requestStatusAfterSend(status, ["sent", "responded"]), status).toBe("rfqs_sent");
+    }
+  });
+
+  it("leaves a partial send where it is (one draft failed or still unsent)", () => {
+    for (const status of ["reviewed", "rfqs_drafted"] as const) {
+      expect(requestStatusAfterSend(status, ["sent", "failed"]), status).toBeNull();
+      expect(requestStatusAfterSend(status, ["sent", "draft"]), status).toBeNull();
+      expect(requestStatusAfterSend(status, ["failed"]), status).toBeNull();
+    }
+  });
+
+  it("moves a comparing request back to collecting when a late send leaves a sent RFQ unanswered", () => {
+    expect(requestStatusAfterSend("comparing", ["responded", "declined", "sent"])).toBe("collecting");
+    expect(requestStatusAfterSend("comparing", ["declined", "sent"])).toBe("collecting");
+  });
+
+  it("keeps a comparing request comparing while every sent RFQ is answered", () => {
+    expect(requestStatusAfterSend("comparing", ["responded", "declined"])).toBeNull();
+    expect(requestStatusAfterSend("comparing", ["responded", "closed", "failed"])).toBeNull();
+  });
+
+  it("never moves rfqs_sent, collecting, sourced, or closed, nor a request before Confirm, and does nothing with no RFQ", () => {
+    for (const status of ["rfqs_sent", "collecting", "sourced", "closed", "new", "parsing", "needs_review"] as const) {
+      expect(requestStatusAfterSend(status, ["sent"]), status).toBeNull();
+      expect(requestStatusAfterSend(status, ["responded", "sent"]), status).toBeNull();
+    }
+    expect(requestStatusAfterSend("reviewed", [])).toBeNull();
+    expect(requestStatusAfterSend("comparing", [])).toBeNull();
+  });
+
+  it("decides every request status and every rfq status the database knows", () => {
+    for (const status of requestStatusValues) {
+      for (const rfqStatus of rfqStatusValues) {
+        const next = requestStatusAfterSend(status, [rfqStatus]);
+        expect(next === null || requestStatusValues.includes(next)).toBe(true);
+      }
+    }
   });
 });
 

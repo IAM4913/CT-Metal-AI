@@ -15,21 +15,33 @@
 // "reviewed draft"): sendBlockedReason() refuses a request still at new,
 // parsing, or needs_review. Without that gate a request sent from needs_review
 // could never be confirmed (confirmRequestAction refuses once an RFQ is sent)
-// and would sit at needs_review with sent RFQs for good.
+// and would sit at needs_review with sent RFQs for good. The status is a proxy
+// for the gate, so the lines are checked again too (assertLinesComplete, the
+// same canConfirm the Review tab runs): a line edited after Confirm reopens
+// the review in review.ts, and this backstop refuses a send that slipped past
+// that with an incomplete line.
 //
 // Two more refusals: a request with a newer revision is superseded and sends
 // nothing (assertNotSuperseded), and a draft with no live line (every line it
 // carried was removed) is marked failed with "No lines" instead of going out
-// as a "0 items" RFQ (AC-7.1). partitionByLiveLines() and mergeOutcomes() are
-// the pure parts.
+// as a "0 items" RFQ (AC-7.1). partitionByLiveLines(), mergeOutcomes(),
+// incompleteLinesReason(), and requestStatusAfterSend() are the pure parts.
 
 import type { Tables, TablesInsert } from "@/lib/db/client";
-import type { RequestStatus } from "@/lib/db/enums";
+import type { RequestStatus, RfqStatus } from "@/lib/db/enums";
 import type { Json } from "@/lib/db/types";
 import { getMailAdapter, type OutboundMessage } from "@/lib/mail/adapter";
 import { sendRfqs, type SendableRfq, type SendOutcome, type SendPorts } from "@/lib/rfq/send";
+import { canConfirm, loadConfirmableLines } from "@/lib/server/review";
 import { assertNotSuperseded } from "@/lib/server/revisions";
-import { EDITABLE_RFQ_STATUSES, loadLiveLineCounts, loadRfq, loadRfqs, SENT_RFQ_STATUSES } from "@/lib/server/routing";
+import {
+  ANSWERED_RFQ_STATUSES,
+  EDITABLE_RFQ_STATUSES,
+  loadLiveLineCounts,
+  loadRfq,
+  loadRfqs,
+  SENT_RFQ_STATUSES,
+} from "@/lib/server/routing";
 import type { BrokerSession } from "@/lib/server/session";
 
 /** Used as the from address when the signed-in user has no email on the session. */
@@ -49,6 +61,36 @@ const UNCONFIRMED_STATUSES: readonly RequestStatus[] = ["new", "parsing", "needs
  */
 export function sendBlockedReason(status: RequestStatus): string | null {
   return UNCONFIRMED_STATUSES.includes(status) ? "Confirm the request on the Review tab before sending." : null;
+}
+
+/** The refusal for a request whose lines no longer pass canConfirm (its problems), or null when they all do. Pure. */
+export function incompleteLinesReason(problems: readonly string[]): string | null {
+  if (problems.length === 0) return null;
+  return `Every line needs a quantity, a unit, and a catalog link or custom mark before sending. ${problems.join(" ")} Fix the lines on the Review tab and confirm the request again.`;
+}
+
+/**
+ * The request status after a send, pure. "rfqs_sent" once every RFQ of the
+ * revision has gone out from reviewed or rfqs_drafted. "collecting" when a late
+ * send (a branch added on the Route tab after the replies came in) puts an
+ * unanswered RFQ under a request already at comparing, since comparing means
+ * every sent RFQ has answered (nextRequestStatus in offers.ts). Null means no
+ * change: a revision with no RFQ, a partial send, a request already collecting
+ * (a new sent RFQ keeps it there), or one sourced or closed, which never moves
+ * backwards here.
+ */
+export function requestStatusAfterSend(current: RequestStatus, rfqStatuses: readonly RfqStatus[]): RequestStatus | null {
+  if (rfqStatuses.length === 0) return null;
+  const sent = rfqStatuses.filter((status) => SENT_RFQ_STATUSES.includes(status));
+  switch (current) {
+    case "reviewed":
+    case "rfqs_drafted":
+      return sent.length === rfqStatuses.length ? "rfqs_sent" : null;
+    case "comparing":
+      return sent.some((status) => !ANSWERED_RFQ_STATUSES.includes(status)) ? "collecting" : null;
+    default:
+      return null;
+  }
 }
 
 /** Split the rfqs about to be sent by whether they still carry a live line (loadLiveLineCounts). Pure; order kept. */
@@ -89,6 +131,7 @@ export async function sendAll(session: BrokerSession, requestId: string): Promis
     throw new Error(blocked);
   }
   await assertNotSuperseded(session, requestId);
+  await assertLinesComplete(session, requestId);
   const rfqs = await loadRfqs(session, requestId, request.revision, EDITABLE_RFQ_STATUSES);
   const { sendable, empty } = partitionByLiveLines(rfqs, await loadLiveLineCounts(session, rfqs.map((rfq) => rfq.id)));
   const ports = buildPorts(session, requestId);
@@ -118,6 +161,7 @@ export async function retryRfq(session: BrokerSession, rfqId: string): Promise<S
     throw new Error(blocked);
   }
   await assertNotSuperseded(session, rfq.request_id);
+  await assertLinesComplete(session, rfq.request_id);
   const ports = buildPorts(session, rfq.request_id);
   const { sendable, empty } = partitionByLiveLines([rfq], await loadLiveLineCounts(session, [rfq.id]));
   const [outcome] = empty.length > 0 ? await failEmpty(empty, ports) : await sendRfqs(sendable.map(toSendable), ports);
@@ -125,6 +169,15 @@ export async function retryRfq(session: BrokerSession, rfqId: string): Promise<S
   await settleRequestStatus(session, request);
   await logActivity(session, "rfq", rfqId, "rfq.retried", { outcome: outcomeJson(outcome) });
   return outcome;
+}
+
+/** The AC-3.3 gate over the request's current lines (canConfirm), as a backstop behind the status check. */
+async function assertLinesComplete(session: BrokerSession, requestId: string): Promise<void> {
+  const check = canConfirm(await loadConfirmableLines(session, requestId));
+  const reason = incompleteLinesReason(check.problems);
+  if (reason !== null) {
+    throw new Error(reason);
+  }
 }
 
 /** Mark every draft with no live line failed with "No lines"; the adapter never sees them. */
@@ -225,18 +278,18 @@ function buildPorts(session: BrokerSession, requestId: string): SendPorts {
 // Request status
 // ---------------------------------------------------------------------------
 
-/** rfqs_sent once every RFQ of the revision has gone out (and there is at least one). */
+/** requests.status per requestStatusAfterSend over every RFQ of the revision. */
 async function settleRequestStatus(session: BrokerSession, request: Tables<"requests">): Promise<void> {
   const all = await loadRfqs(session, request.id, request.revision, null);
-  if (all.length === 0) return;
-  const everySent = all.every((rfq) => SENT_RFQ_STATUSES.includes(rfq.status));
-  if (!everySent || request.status === "rfqs_sent") return;
-  // Do not move a request backwards once replies are being collected or compared.
-  if (!["reviewed", "rfqs_drafted"].includes(request.status)) return;
+  const next = requestStatusAfterSend(
+    request.status,
+    all.map((rfq) => rfq.status),
+  );
+  if (next === null || next === request.status) return;
 
   const { error } = await session.supabase
     .from("requests")
-    .update({ status: "rfqs_sent" })
+    .update({ status: next })
     .eq("broker_id", session.brokerId)
     .eq("id", request.id);
   if (error) {

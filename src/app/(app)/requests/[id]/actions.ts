@@ -23,7 +23,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { parseRequest } from "@/lib/server/parse-request";
+import { assertParseAllowed, parseRequest } from "@/lib/server/parse-request";
 import {
   addLine,
   clearLineFlags,
@@ -106,6 +106,10 @@ export async function parseRequestAction(
   const session = await requireBroker();
   return attempt("parseRequest", async () => {
     const id = idSchema.parse(requestId);
+    // Refuse a confirmed request before editableRequest would create a revision
+    // for it: the revision copies the lines as confirmed, so the parse would be
+    // refused there too, with an empty revision left behind.
+    await assertParseAllowed(session, id);
     const target = await editableRequest(session, id);
     const { lineCount } = await parseRequest(session, target.requestId);
     revalidateRequest(target.requestId);
@@ -284,9 +288,15 @@ export async function sendAllAction(requestId: string) {
   const session = await requireBroker();
   return attempt("sendAll", async () => {
     const id = idSchema.parse(requestId);
-    const outcomes = await sendAll(session, id);
-    revalidateRequest(id);
-    return { outcomes };
+    try {
+      const outcomes = await sendAll(session, id);
+      return { outcomes };
+    } finally {
+      // A throw after some RFQs were marked sent (the messages or activity_log
+      // insert failing) must still invalidate the cached pages, or the tab
+      // keeps showing those RFQs as drafts.
+      revalidateRequest(id);
+    }
   });
 }
 

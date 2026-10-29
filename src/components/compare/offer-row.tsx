@@ -41,6 +41,7 @@ import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { selectionBlockedReason, type LineComparison, type OfferCell } from "@/lib/compare/build";
 import { hasValue, type CostResult } from "@/lib/compare/cost";
 import type { AlternateType, Availability, FreightBasis, LineUnit, PriceBasis } from "@/lib/db/enums";
+import { formatIsoDay, isoDayOf } from "@/lib/parsing/money";
 
 // ---------------------------------------------------------------------------
 // Text rules
@@ -136,11 +137,29 @@ export function earlyPayText(early: OfferCell["early_pay"]): string {
   return `${when} (${early.pct}%): ${UNKNOWN}, ${early.savings.reason}`;
 }
 
-/** A date or timestamp as "Nov 5, 2026"; "unknown" when null; the raw text when it does not parse. */
+/**
+ * A date-only string (offer_lines.ready_date) as "Nov 5, 2026"; "unknown" when
+ * null; the raw text when it does not parse. parseISO reads a date-only string
+ * as local midnight, so the day shown is the day stored. Not for the quote
+ * expiry, a timestamp: see expiryText.
+ */
 export function formatDay(iso: string | null): string {
   if (iso === null) return UNKNOWN;
   const parsed = parseISO(iso);
   return isValid(parsed) ? format(parsed, "MMM d, yyyy") : iso;
+}
+
+/**
+ * The quote expiry as "Nov 30, 2026" from its stored UTC day. The expiry is a
+ * calendar day stored at 00:00 UTC (toExpiryTimestamp, parseQuoteExpiry), which
+ * is the evening before in every US zone, so it is never formatted through the
+ * browser's zone; the Offers tab shows it the same way (offer-card.tsx).
+ * "unknown" when null.
+ */
+export function expiryText(iso: string | null): string {
+  if (iso === null) return UNKNOWN;
+  const day = isoDayOf(iso);
+  return formatIsoDay(day) ?? day ?? UNKNOWN;
 }
 
 /** What changed on an alternate: the lib's text per changed attribute, else the alternate type names. */
@@ -391,7 +410,7 @@ function EarlyPayCell(info: Ctx<unknown>) {
 function ExpiresCell(info: Ctx<string | null>) {
   const value = info.getValue();
   if (value === null) return <Unknown />;
-  return <span className="whitespace-nowrap tabular-nums">{formatDay(value)}</span>;
+  return <span className="whitespace-nowrap tabular-nums">{expiryText(value)}</span>;
 }
 
 const linkClass = "font-medium text-zinc-700 underline hover:text-zinc-900";

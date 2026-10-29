@@ -12,7 +12,11 @@
 //
 // Lines the broker has already confirmed, marked custom, or removed are kept on
 // a re-parse. Only lines with status "parsed" are replaced, and the new lines
-// are numbered after the kept ones. The swap is insert first, delete second:
+// are numbered after the kept ones. So a re-parse is refused once the request
+// is confirmed (status past needs_review) or once every live line is confirmed
+// or custom (reparseBlockedReason): with nothing to replace it would only add a
+// second copy of every line. The server action runs the same check before it
+// creates a revision for a sent request. The swap is insert first, delete second:
 // the new rows are written, then the previous parsed rows are deleted by id.
 // Supabase JS has no transactions, so this order is the guard against losing
 // the old lines: a failed insert leaves them untouched, and a failed delete
@@ -26,12 +30,13 @@
 // an emptied draft is deleted, the rest are rebuilt) and deleted second.
 //
 // On any failure after the status flips to "parsing" the request goes back to
-// "new" and the error is rethrown; the llm_call row (written by
-// callExtractionTool, success or failure) is the record of what happened.
+// "new" (statusAfterFailedParse; a request that was somehow past needs_review
+// keeps the status it had) and the error is rethrown; the llm_call row (written
+// by callExtractionTool, success or failure) is the record of what happened.
 
 import { createAdminClient, type Db, type Tables, type TablesInsert } from "@/lib/db/client";
 import type { Json } from "@/lib/db/types";
-import type { RequestStatus } from "@/lib/db/enums";
+import type { RequestLineStatus, RequestStatus } from "@/lib/db/enums";
 import { extractPdfPages } from "@/lib/mail/pdf-text";
 import { createAliasIndex, type AliasIndex, type AliasIndexRow } from "@/lib/parsing/alias-index";
 import { buildExtractionDocument, type DocumentSegment } from "@/lib/parsing/document";
@@ -49,8 +54,55 @@ const PDF_MIME = "application/pdf";
 // 11000 aliases, so the index is loaded in pages.
 const ALIAS_PAGE_SIZE = 1000;
 
+/** Request statuses a parse may start from: before Confirm, or mid-parse (a stuck "parsing" is parsed again). */
+const PARSEABLE_STATUSES: readonly RequestStatus[] = ["new", "parsing", "needs_review"];
+
+/**
+ * Why the request may not be parsed now, or null when it may. Pure. A re-parse
+ * keeps every line that is not "parsed", so a confirmed request (status past
+ * needs_review), or one whose live lines are all confirmed or custom, has
+ * nothing to replace and would get a second copy of every line. A request with
+ * no lines yet, or with removed lines only, may always be parsed.
+ */
+export function reparseBlockedReason(status: RequestStatus, lineStatuses: readonly RequestLineStatus[]): string | null {
+  if (!PARSEABLE_STATUSES.includes(status)) {
+    return "The request is confirmed. A re-parse keeps confirmed, custom, and removed lines, so it would only add a second copy of every line. Edit the lines here instead.";
+  }
+  const live = lineStatuses.filter((lineStatus) => lineStatus !== "removed");
+  if (live.length > 0 && !live.some((lineStatus) => lineStatus === "parsed")) {
+    return "Every line is confirmed or custom and would be kept, so a re-parse would only add a second copy of each. Remove the lines to replace (or undo their custom mark) first.";
+  }
+  return null;
+}
+
+/** The status a failed parse leaves: "new" (the next Parse replaces every parsed line again), or the status a confirmed request had. Pure. */
+export function statusAfterFailedParse(previous: RequestStatus): RequestStatus {
+  return PARSEABLE_STATUSES.includes(previous) ? "new" : previous;
+}
+
+/** reparseBlockedReason over the request's row and lines; throws with the reason. */
+export async function assertParseAllowed(session: BrokerSession, requestId: string): Promise<void> {
+  const request = await loadRequest(session, requestId);
+  const existing = await loadExistingLines(session, requestId);
+  const blocked = reparseBlockedReason(
+    request.status,
+    existing.map((row) => row.status),
+  );
+  if (blocked !== null) {
+    throw new Error(blocked);
+  }
+}
+
 export async function parseRequest(session: BrokerSession, requestId: string): Promise<{ lineCount: number }> {
   const request = await loadRequest(session, requestId);
+  const existing = await loadExistingLines(session, requestId);
+  const blocked = reparseBlockedReason(
+    request.status,
+    existing.map((row) => row.status),
+  );
+  if (blocked !== null) {
+    throw new Error(blocked);
+  }
   await setRequestStatus(session, requestId, "parsing");
 
   try {
@@ -81,7 +133,6 @@ export async function parseRequest(session: BrokerSession, requestId: string): P
     });
 
     const lines = normalizeExtractedLines(call.output, doc, index);
-    const existing = await loadExistingLines(session, requestId);
     const kept = existing.filter((row) => row.status !== "parsed");
     const stale = existing.filter((row) => row.status === "parsed").map((row) => row.id);
     const lineNoBase = kept.reduce((max, row) => Math.max(max, row.line_no), 0);
@@ -110,7 +161,7 @@ export async function parseRequest(session: BrokerSession, requestId: string): P
     return { lineCount: rows.length };
   } catch (error) {
     try {
-      await setRequestStatus(session, requestId, "new");
+      await setRequestStatus(session, requestId, statusAfterFailedParse(request.status));
     } catch {
       // The parse failure is the error to surface.
     }
