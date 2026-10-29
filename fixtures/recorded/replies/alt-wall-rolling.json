@@ -1,0 +1,65 @@
+{
+  "fixture": "alt-wall-rolling.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "11e2c262ff0ebb76c2e9f8998a117f8e1643de0fa4ff6136f8d880e78ae1c025",
+  "received_at": "2026-10-22T15:00:00.000Z",
+  "context": [
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000001",
+      "line_no": 1,
+      "designation": "HSS8x8x3/8",
+      "description": "HSS8x8x3/8",
+      "qty": 20,
+      "unit": "pcs",
+      "length_ft": 40,
+      "length_text": "40'",
+      "grade_spec": null,
+      "category": "hss_square",
+      "dims": {
+        "a": 8,
+        "b": 8,
+        "t": 0.375
+      }
+    }
+  ],
+  "output": {
+    "offer_meta": {
+      "declined": false,
+      "decline_reason": null,
+      "payment_terms": null,
+      "early_pay_pct_text": null,
+      "early_pay_days": null,
+      "freight_amount_text": null,
+      "freight_basis": "separate",
+      "quote_valid_text": null,
+      "availability_remarks": "3/8 wall is booked through December, nothing on the floor."
+    },
+    "lines": [
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000001",
+        "raw_text": "We can offer 8x8x1/2 from stock, 40', $64.50/cwt FOB mill.",
+        "span": {
+          "start": 79,
+          "end": 137
+        },
+        "offered_desc": "8x8x1/2",
+        "is_exact_match": false,
+        "alternate_types": [
+          "wall"
+        ],
+        "available_qty": null,
+        "unit": null,
+        "availability": "stock",
+        "ready_date_text": null,
+        "delivery_estimate_text": null,
+        "unit_price_text": "$64.50/cwt",
+        "price_basis": "per_cwt",
+        "confidence": 0.9,
+        "flags": []
+      }
+    ],
+    "notes": null
+  }
+}

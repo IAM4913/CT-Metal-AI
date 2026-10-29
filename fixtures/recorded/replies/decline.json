@@ -1,0 +1,41 @@
+{
+  "fixture": "decline.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "1fd5a1fa35eb4628427d6032ea3f7fb2ee4b1943b3af5afe7f2df5139fb0ac36",
+  "received_at": "2026-10-22T15:00:00.000Z",
+  "context": [
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000003",
+      "line_no": 1,
+      "designation": "C12x30",
+      "description": "C12x30",
+      "qty": 6,
+      "unit": "pcs",
+      "length_ft": 40,
+      "length_text": "40'",
+      "grade_spec": null,
+      "category": "channel",
+      "dims": {
+        "d": 12,
+        "wt": 30
+      }
+    }
+  ],
+  "output": {
+    "offer_meta": {
+      "declined": true,
+      "decline_reason": "we don't stock channel",
+      "payment_terms": null,
+      "early_pay_pct_text": null,
+      "early_pay_days": null,
+      "freight_amount_text": null,
+      "freight_basis": "unknown",
+      "quote_valid_text": null,
+      "availability_remarks": null
+    },
+    "lines": [],
+    "notes": null
+  }
+}

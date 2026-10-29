@@ -1,0 +1,63 @@
+{
+  "fixture": "future-rolling.txt",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "28e86e59d391869cbe39058076f7f5501181edb2f47ea3f53875c47848b13dc4",
+  "received_at": "2026-10-22T15:00:00.000Z",
+  "context": [
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000002",
+      "line_no": 1,
+      "designation": "HSS8x8x5/8",
+      "description": "HSS8x8x5/8",
+      "qty": 100,
+      "unit": "pcs",
+      "length_ft": 40,
+      "length_text": "40'",
+      "grade_spec": "A500 Gr B",
+      "category": "hss_square",
+      "dims": {
+        "a": 8,
+        "b": 8,
+        "t": 0.625
+      }
+    }
+  ],
+  "output": {
+    "offer_meta": {
+      "declined": false,
+      "decline_reason": null,
+      "payment_terms": null,
+      "early_pay_pct_text": null,
+      "early_pay_days": null,
+      "freight_amount_text": null,
+      "freight_basis": "unknown",
+      "quote_valid_text": null,
+      "availability_remarks": null
+    },
+    "lines": [
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000002",
+        "raw_text": "Rolling week of Nov 17, five loads, can cut 40'.",
+        "span": {
+          "start": 20,
+          "end": 68
+        },
+        "offered_desc": "HSS8x8x5/8",
+        "is_exact_match": true,
+        "alternate_types": [],
+        "available_qty": null,
+        "unit": null,
+        "availability": "rolling",
+        "ready_date_text": "week of Nov 17",
+        "delivery_estimate_text": "five loads, can cut 40'",
+        "unit_price_text": null,
+        "price_basis": null,
+        "confidence": 0.8,
+        "flags": []
+      }
+    ],
+    "notes": null
+  }
+}

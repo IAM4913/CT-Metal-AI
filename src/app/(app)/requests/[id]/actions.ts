@@ -1,7 +1,7 @@
 "use server";
 
 // Server actions for the request workspace: Review (PRD FR-2, FR-3), Route
-// (FR-6), and RFQs (FR-7, FR-8). Thin wrappers: each one checks the session,
+// (FR-6), RFQs (FR-7, FR-8), and Offers (FR-9). Thin wrappers: each one checks the session,
 // validates its arguments with Zod, calls the lib function in src/lib/server,
 // revalidates the request pages, and returns a plain result. Nothing here
 // throws to the client: a failure is logged server-side and comes back as
@@ -37,6 +37,27 @@ import {
   searchCatalog,
   updateLine,
 } from "@/lib/server/review";
+import type { MatchedBy } from "@/lib/db/enums";
+import {
+  addOfferLine,
+  createManualOffer,
+  extractOffer,
+  ingestReply,
+  listOpenRfqs,
+  manualOfferInputSchema,
+  manualOfferLineSchema,
+  markOfferReviewed,
+  NeedsRfqChoiceError,
+  OfferExtractionError,
+  offerLinePatchSchema,
+  offerPatchSchema,
+  removeOfferLine,
+  setOfferDeclined,
+  updateOffer,
+  updateOfferLine,
+  type IngestInput,
+  type OpenRfq,
+} from "@/lib/server/offers";
 import { findChildRevision, SupersededError } from "@/lib/server/revisions";
 import { retryRfq, sendAll } from "@/lib/server/rfq-send";
 import {
@@ -376,6 +397,211 @@ function revalidateRequest(requestId: string): void {
   revalidatePath(base);
   revalidatePath(`${base}/route`);
   revalidatePath(`${base}/rfqs`);
-  // Work queue counts by status (Step 8) change when a request is parsed, confirmed, drafted, or sent.
+  revalidatePath(`${base}/offers`);
+  revalidatePath(`${base}/compare`);
+  // Work queue counts by status (Step 8) change when a request is parsed, confirmed, drafted, sent, or answered.
   revalidatePath("/");
+}
+
+// ---------------------------------------------------------------------------
+// Offers (Offers tab, PRD FR-9)
+// ---------------------------------------------------------------------------
+
+// Reply files share the .eml cap of /requests/new (MAX_EML_BYTES there); the
+// page copy says 10 MB and serverActions.bodySizeLimit sits above it.
+const MAX_REPLY_FILE_BYTES = 10 * 1024 * 1024;
+
+const replyModeSchema = z.enum(["paste", "eml", "pdf"]);
+
+/** A select or hidden field that may be blank: "" and a missing field both become null. */
+const optionalRfqId = z.preprocess((value) => (typeof value === "string" && value.trim() === "" ? null : value), z.uuid().nullable());
+
+const replyFileSchema = z
+  .instanceof(File)
+  .refine((file) => file.size > 0, { message: "The file is empty." })
+  .refine((file) => file.size <= MAX_REPLY_FILE_BYTES, { message: "The file is over 10 MB." });
+
+const emlReplyFileSchema = replyFileSchema.refine((file) => /\.eml$/i.test(file.name) || file.type === "message/rfc822", {
+  message: "Choose an .eml file.",
+});
+const pdfReplyFileSchema = replyFileSchema.refine((file) => /\.pdf$/i.test(file.name) || file.type === "application/pdf", {
+  message: "Choose a PDF file.",
+});
+
+const ingestFormSchema = z.object({
+  requestId: idSchema,
+  rfqId: optionalRfqId,
+  mode: replyModeSchema,
+});
+
+type IngestReplyResult =
+  | { ok: true; offerId: string; rfqId: string; matchedBy: MatchedBy; needsRfqChoice: false }
+  | { ok: false; error: string; needsRfqChoice?: boolean; openRfqs?: OpenRfq[]; offerId?: string };
+
+/**
+ * Ingest a vendor reply from the Add reply panel. FormData fields: requestId,
+ * mode ("paste" | "eml" | "pdf"), rfqId (optional; required for paste and pdf,
+ * auto-detected from headers for eml when blank), text (paste), file (eml, pdf).
+ * Answers needsRfqChoice with the open RFQs when the headers match none and no
+ * rfqId was given; the panel resubmits with the broker's pick.
+ */
+export async function ingestReplyAction(formData: FormData): Promise<IngestReplyResult> {
+  const session = await requireBroker();
+  try {
+    const form = ingestFormSchema.parse({
+      requestId: formData.get("requestId"),
+      rfqId: formData.get("rfqId"),
+      mode: formData.get("mode"),
+    });
+
+    const input: IngestInput = { requestId: form.requestId, rfqId: form.rfqId, mode: form.mode };
+    if (form.mode === "paste") {
+      const text = formData.get("text");
+      if (typeof text !== "string" || text.trim() === "") throw new Error("Paste the reply text first.");
+      input.text = text;
+    } else {
+      const file = (form.mode === "eml" ? emlReplyFileSchema : pdfReplyFileSchema).parse(formData.get("file"));
+      input.file = {
+        name: file.name,
+        mime: form.mode === "eml" ? "message/rfc822" : "application/pdf",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      };
+    }
+
+    const result = await ingestReply(session, input);
+    revalidateRequest(form.requestId);
+    return { ok: true, offerId: result.offerId, rfqId: result.rfqId, matchedBy: result.matchedBy, needsRfqChoice: false };
+  } catch (error) {
+    console.error("[requests] ingestReply failed", error);
+    if (error instanceof NeedsRfqChoiceError) {
+      const requestId = idSchema.safeParse(formData.get("requestId"));
+      const openRfqs = requestId.success ? await listOpenRfqsSafely(session, requestId.data) : [];
+      return { ok: false, error: error.message, needsRfqChoice: true, openRfqs };
+    }
+    if (error instanceof OfferExtractionError) {
+      // The offer exists with no lines; the page shows it with Re-extract.
+      const requestId = idSchema.safeParse(formData.get("requestId"));
+      if (requestId.success) revalidateRequest(requestId.data);
+      return { ok: false, error: error.message, offerId: error.offerId };
+    }
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
+/** listOpenRfqs for the picker; a read failure here must not hide the needsRfqChoice answer. */
+async function listOpenRfqsSafely(session: BrokerSession, requestId: string): Promise<OpenRfq[]> {
+  try {
+    return await listOpenRfqs(session, requestId);
+  } catch (error) {
+    console.error("[requests] listOpenRfqs failed", error);
+    return [];
+  }
+}
+
+/**
+ * Save a phone or text quote (manualOfferInputSchema in src/lib/server/offers.ts:
+ * rfqId, source "phone" | "text", receivedAt ISO, paymentTerms, earlyPayPct,
+ * earlyPayDays, freightAmount, freightBasis, quoteExpiresAt ISO or null, notes,
+ * declined, lines[] with the offer-line fields).
+ */
+export async function createManualOfferAction(input: unknown): Promise<ActionResult<{ offerId: string }>> {
+  const session = await requireBroker();
+  return attempt("createManualOffer", async () => {
+    const parsed = manualOfferInputSchema.parse(input);
+    const { offerId } = await createManualOffer(session, parsed);
+    revalidateRequest(await requestIdForRfq(session, parsed.rfqId));
+    return { offerId };
+  });
+}
+
+/** Edit one offer line (offerLinePatchSchema). Flags are recomputed and the change logged. */
+export async function updateOfferLineAction(offerLineId: string, patch: unknown): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("updateOfferLine", async () => {
+    const id = idSchema.parse(offerLineId);
+    const edit = offerLinePatchSchema.parse(patch);
+    const line = await updateOfferLine(session, id, edit);
+    revalidateRequest(await requestIdForOffer(session, line.offer_id));
+    return {};
+  });
+}
+
+/** Add a typed line to an offer (manualOfferLineSchema). Flags computed, duplicates re-paired, the add logged. */
+export async function addOfferLineAction(offerId: string, input: unknown): Promise<ActionResult<{ offerLineId: string }>> {
+  const session = await requireBroker();
+  return attempt("addOfferLine", async () => {
+    const id = idSchema.parse(offerId);
+    const line = manualOfferLineSchema.parse(input);
+    const row = await addOfferLine(session, id, line);
+    revalidateRequest(await requestIdForOffer(session, id));
+    return { offerLineId: row.id };
+  });
+}
+
+/** Remove one offer line. Refused while a Compare selection points at it. */
+export async function removeOfferLineAction(offerLineId: string): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("removeOfferLine", async () => {
+    const id = idSchema.parse(offerLineId);
+    const removed = await removeOfferLine(session, id);
+    revalidateRequest(await requestIdForOffer(session, removed.offer_id));
+    return {};
+  });
+}
+
+/** Edit an offer's terms (offerPatchSchema). */
+export async function updateOfferAction(offerId: string, patch: unknown): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("updateOffer", async () => {
+    const id = idSchema.parse(offerId);
+    const edit = offerPatchSchema.parse(patch);
+    await updateOffer(session, id, edit);
+    revalidateRequest(await requestIdForOffer(session, id));
+    return {};
+  });
+}
+
+export async function markOfferReviewedAction(offerId: string): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("markOfferReviewed", async () => {
+    const id = idSchema.parse(offerId);
+    await markOfferReviewed(session, id);
+    revalidateRequest(await requestIdForOffer(session, id));
+    return {};
+  });
+}
+
+export async function setOfferDeclinedAction(offerId: string, declined: boolean): Promise<ActionResult> {
+  const session = await requireBroker();
+  return attempt("setOfferDeclined", async () => {
+    const id = idSchema.parse(offerId);
+    const flag = z.boolean().parse(declined);
+    await setOfferDeclined(session, id, flag);
+    revalidateRequest(await requestIdForOffer(session, id));
+    return {};
+  });
+}
+
+/** Run the extraction again on a stored reply; replaces the offer's lines and terms. */
+export async function reExtractOfferAction(offerId: string): Promise<ActionResult<{ lineCount: number; declined: boolean }>> {
+  const session = await requireBroker();
+  return attempt("extractOffer", async () => {
+    const id = idSchema.parse(offerId);
+    const result = await extractOffer(session, id);
+    revalidateRequest(await requestIdForOffer(session, id));
+    return result;
+  });
+}
+
+/** The request an offer belongs to (through its RFQ), read under RLS; same purpose as requestIdForRfq. */
+async function requestIdForOffer(session: BrokerSession, offerId: string): Promise<string> {
+  const { data, error } = await session.supabase
+    .from("vendor_offers")
+    .select("rfq_id")
+    .eq("broker_id", session.brokerId)
+    .eq("id", offerId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read offer: ${error.message}`);
+  if (!data) throw new Error("Offer not found");
+  return requestIdForRfq(session, data.rfq_id);
 }

@@ -1,0 +1,173 @@
+{
+  "fixture": "quote.pdf.eml",
+  "source": "hand-authored",
+  "model": "hand-authored (claude-sonnet-5-5 target)",
+  "recorded_at": "2026-10-23T12:00:00.000Z",
+  "document_sha256": "63c7e082dc9da95467e515135dc604ed9e8394dccde95746be19260cd839f910",
+  "received_at": "2026-10-22T15:00:00.000Z",
+  "context": [
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000011",
+      "line_no": 1,
+      "designation": "W12x26",
+      "description": "W12x26",
+      "qty": 8,
+      "unit": "pcs",
+      "length_ft": 50,
+      "length_text": "50'",
+      "grade_spec": null,
+      "category": "w_beam",
+      "dims": {
+        "d": 12,
+        "wt": 26
+      }
+    },
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000012",
+      "line_no": 2,
+      "designation": "L2x2x1/4",
+      "description": "L2x2x1/4",
+      "qty": 40,
+      "unit": "pcs",
+      "length_ft": 20,
+      "length_text": "20'",
+      "grade_spec": null,
+      "category": "angle",
+      "dims": {
+        "a": 2,
+        "b": 2,
+        "t": 0.25
+      }
+    },
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000013",
+      "line_no": 3,
+      "designation": "PL3/8",
+      "description": "PL3/8 48x96 A36",
+      "qty": 10,
+      "unit": "pcs",
+      "length_ft": null,
+      "length_text": null,
+      "grade_spec": "A36",
+      "category": "plate",
+      "dims": {
+        "t": 0.375,
+        "w": 48,
+        "l": 96
+      }
+    },
+    {
+      "request_line_id": "11111111-1111-4111-8111-000000000014",
+      "line_no": 4,
+      "designation": "HSS6x6x3/8",
+      "description": "HSS6x6x3/8",
+      "qty": 20,
+      "unit": "pcs",
+      "length_ft": 24,
+      "length_text": "24'",
+      "grade_spec": null,
+      "category": "hss_square",
+      "dims": {
+        "a": 6,
+        "b": 6,
+        "t": 0.375
+      }
+    }
+  ],
+  "output": {
+    "offer_meta": {
+      "declined": false,
+      "decline_reason": null,
+      "payment_terms": "Net 30, 1% 10 days",
+      "early_pay_pct_text": "1%",
+      "early_pay_days": 10,
+      "freight_amount_text": null,
+      "freight_basis": "included",
+      "quote_valid_text": "valid 7 days",
+      "availability_remarks": null
+    },
+    "lines": [
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000011",
+        "raw_text": "W12x26 x 50' 8 pcs $62.50 cwt stock",
+        "span": {
+          "start": 389,
+          "end": 424
+        },
+        "offered_desc": "W12x26 x 50'",
+        "is_exact_match": true,
+        "alternate_types": [],
+        "available_qty": 8,
+        "unit": "pcs",
+        "availability": "stock",
+        "ready_date_text": null,
+        "delivery_estimate_text": null,
+        "unit_price_text": "$62.50 cwt",
+        "price_basis": "per_cwt",
+        "confidence": 0.96,
+        "flags": []
+      },
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000012",
+        "raw_text": "L2x2x1/4 x 20' 40 pcs $0.98 ft stock",
+        "span": {
+          "start": 425,
+          "end": 461
+        },
+        "offered_desc": "L2x2x1/4 x 20'",
+        "is_exact_match": true,
+        "alternate_types": [],
+        "available_qty": 40,
+        "unit": "pcs",
+        "availability": "stock",
+        "ready_date_text": null,
+        "delivery_estimate_text": null,
+        "unit_price_text": "$0.98 ft",
+        "price_basis": "per_ft",
+        "confidence": 0.96,
+        "flags": []
+      },
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000013",
+        "raw_text": "PL3/8 48x96 A36 10 pcs $58.00 cwt stock",
+        "span": {
+          "start": 462,
+          "end": 501
+        },
+        "offered_desc": "PL3/8 48x96 A36",
+        "is_exact_match": true,
+        "alternate_types": [],
+        "available_qty": 10,
+        "unit": "pcs",
+        "availability": "stock",
+        "ready_date_text": null,
+        "delivery_estimate_text": null,
+        "unit_price_text": "$58.00 cwt",
+        "price_basis": "per_cwt",
+        "confidence": 0.95,
+        "flags": []
+      },
+      {
+        "request_line_id": "11111111-1111-4111-8111-000000000014",
+        "raw_text": "HSS6x6x3/8 x 24' 20 pcs $71.00 cwt rolling 11/17",
+        "span": {
+          "start": 502,
+          "end": 550
+        },
+        "offered_desc": "HSS6x6x3/8 x 24'",
+        "is_exact_match": true,
+        "alternate_types": [],
+        "available_qty": 20,
+        "unit": "pcs",
+        "availability": "rolling",
+        "ready_date_text": "11/17",
+        "delivery_estimate_text": null,
+        "unit_price_text": "$71.00 cwt",
+        "price_basis": "per_cwt",
+        "confidence": 0.94,
+        "flags": []
+      }
+    ],
+    "notes": null
+  }
+}
