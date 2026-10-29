@@ -1,13 +1,39 @@
 import { describe, expect, it } from "vitest";
 import type { Tables } from "@/lib/db/client";
+import { rfqStatusValues } from "@/lib/db/enums";
 import {
   DEFAULT_SENDER_NAME,
+  EDITABLE_RFQ_STATUSES,
   groupLinksByRfq,
   pickGreetingContacts,
+  RFQS_TAB_STATUSES,
   sameText,
   senderNameFor,
+  SENT_RFQ_STATUSES,
   toRfqLineView,
 } from "./routing";
+
+describe("RFQS_TAB_STATUSES (the RFQs tab shows every RFQ of the revision)", () => {
+  it("loads every RFQ that went out, so a history link to an answered RFQ lands on its card (AC-11.3)", () => {
+    for (const status of SENT_RFQ_STATUSES) expect(RFQS_TAB_STATUSES).toContain(status);
+    expect(RFQS_TAB_STATUSES).toContain("responded");
+    expect(RFQS_TAB_STATUSES).toContain("declined");
+    expect(RFQS_TAB_STATUSES).toContain("closed");
+  });
+
+  it("loads every editable draft", () => {
+    for (const status of EDITABLE_RFQ_STATUSES) expect(RFQS_TAB_STATUSES).toContain(status);
+  });
+
+  it("covers every rfq status exactly once", () => {
+    expect([...RFQS_TAB_STATUSES].sort()).toEqual([...rfqStatusValues].sort());
+  });
+
+  it("splits the statuses into editable and sent with none in both", () => {
+    for (const status of EDITABLE_RFQ_STATUSES) expect(SENT_RFQ_STATUSES).not.toContain(status);
+    for (const status of SENT_RFQ_STATUSES) expect(EDITABLE_RFQ_STATUSES).not.toContain(status);
+  });
+});
 
 describe("senderNameFor (AC-7.2, the sign-off is a person)", () => {
   it("signs with the signed-in person's display name", () => {

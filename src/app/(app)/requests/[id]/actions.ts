@@ -664,8 +664,8 @@ export async function updateSelectionQtyAction(selectionId: string, qty: number)
  * AC-11.1: the explicit Confirm purchase. Input per purchaseInputSchema
  * ({ poNumber, notes }, both nullable). Creates one purchase per branch from
  * the selections no purchase holds yet and moves the request to "sourced".
- * The result carries the new purchase ids; redirectTo is left unset until the
- * history page (Step 8) exists, so the client stays on the Compare tab.
+ * The result carries the new purchase ids; redirectTo is left unset so the
+ * client stays on the Compare tab, where the bar links to /history.
  */
 export async function confirmPurchaseAction(
   requestId: string,

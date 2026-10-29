@@ -138,7 +138,7 @@ export function RfqCard({ rfq, busy, readOnly = false, onUpdate, onRegenerate, o
   }
 
   return (
-    <article aria-labelledby={`rfq-${rfq.id}-heading`} className="flex flex-col gap-4 rounded border border-zinc-200 p-4">
+    <article id={`rfq-${rfq.id}`} aria-labelledby={`rfq-${rfq.id}-heading`} className="flex flex-col gap-4 rounded border border-zinc-200 p-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <h3 id={`rfq-${rfq.id}-heading`} className="text-base font-semibold text-zinc-900">

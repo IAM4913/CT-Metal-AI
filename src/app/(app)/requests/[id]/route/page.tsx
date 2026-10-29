@@ -10,7 +10,7 @@
 import { RouteWorkspace, type RouteLine } from "@/components/route/route-workspace";
 import { suggestBranchesForLine } from "@/lib/routing/match";
 import { loadRequestWorkspace } from "@/lib/server/requests";
-import { loadRoutingContext } from "@/lib/server/routing";
+import { loadRoutingContext, SENT_RFQ_STATUSES } from "@/lib/server/routing";
 import { requireBroker } from "@/lib/server/session";
 
 type RoutePageProps = {
@@ -26,8 +26,9 @@ export default async function RoutePage({ params }: RoutePageProps) {
     loadRequestWorkspace(id),
   ]);
 
-  // Which branches each line is routed to today, and which of those RFQs are
-  // already sent (the lib never touches a sent RFQ, so the picker locks them).
+  // Which branches each line is routed to today, and which of those RFQs have
+  // already gone out, answered or not (the lib never touches a sent RFQ, so
+  // the picker locks them).
   const rfqById = new Map(drafts.map((rfq) => [rfq.id, rfq]));
   const selectedByLine = new Map<string, Set<string>>();
   const lockedByLine = new Map<string, Set<string>>();
@@ -35,7 +36,7 @@ export default async function RoutePage({ params }: RoutePageProps) {
     const rfq = rfqById.get(rfqLine.rfq_id);
     if (!rfq) continue;
     addTo(selectedByLine, rfqLine.request_line_id, rfq.branch_id);
-    if (rfq.status === "sent") addTo(lockedByLine, rfqLine.request_line_id, rfq.branch_id);
+    if (SENT_RFQ_STATUSES.includes(rfq.status)) addTo(lockedByLine, rfqLine.request_line_id, rfq.branch_id);
   }
 
   // Past purchases of a category from a branch, for the "n past buys" badge.

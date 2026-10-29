@@ -33,6 +33,9 @@ type ActionOutcome = { ok: true } | { ok: false; error: string };
 /** sendAll picks up these statuses (src/lib/rfq/send.ts). */
 const SENDABLE: ReadonlySet<RfqStatus> = new Set<RfqStatus>(["draft", "queued", "failed"]);
 
+/** Statuses meaning the RFQ went out, whatever happened after. Mirrors SENT_RFQ_STATUSES in src/lib/server/routing.ts (a server module this client file cannot import). */
+const WENT_OUT: ReadonlySet<RfqStatus> = new Set<RfqStatus>(["sent", "responded", "declined", "closed"]);
+
 /** Statuses before Confirm on the Review tab; sendAll refuses these (sendBlockedReason in src/lib/server/rfq-send.ts). */
 const BEFORE_REVIEW: ReadonlySet<RequestStatus> = new Set<RequestStatus>(["new", "parsing", "needs_review"]);
 
@@ -80,7 +83,7 @@ export function RfqsWorkspace({ request, rfqs, supersededBy }: RfqsWorkspaceProp
   const [banner, setBanner] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   const sendable = readOnly ? [] : rfqs.filter((rfq) => SENDABLE.has(rfq.status));
-  const sentCount = rfqs.filter((rfq) => rfq.status === "sent").length;
+  const sentCount = rfqs.filter((rfq) => WENT_OUT.has(rfq.status)).length;
   const unconfirmed = BEFORE_REVIEW.has(request.status);
 
   const onUpdate = useCallback(

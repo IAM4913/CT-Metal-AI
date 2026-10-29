@@ -17,7 +17,7 @@
 // are reviewed here; the newer revision has no sent RFQ until the broker sends
 // again. The header says so and links forward for edits to the request itself.
 
-import { differenceInCalendarDays, format } from "date-fns";
+import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -36,6 +36,7 @@ import { OfferCard, type OfferCardData, type OfferPatch } from "@/components/off
 import type { OfferLineAddInput, OfferLinePatch, OfferRequestLine } from "@/components/offers/offer-lines-grid";
 import { RfqStatusBadge } from "@/components/rfqs/rfq-card";
 import type { RequestStatus, RfqStatus } from "@/lib/db/enums";
+import { wholeDaysSince } from "@/lib/queue/group";
 import { compareText } from "@/lib/routing/match";
 
 /** An RFQ of this revision that went out, with the lines it asked about. */
@@ -73,10 +74,15 @@ export function sortRfqs<T extends { vendor_name: string; branch_name: string }>
   return [...rfqs].sort((a, b) => compareText(a.vendor_name, b.vendor_name) || compareText(a.branch_name, b.branch_name));
 }
 
-/** "3 days" or "today" since an RFQ went out, for the awaiting list (AC-12.2 wording). */
+/**
+ * "3 days ago" or "sent under a day ago" since an RFQ went out, for the
+ * awaiting list (AC-12.2). Elapsed whole days through wholeDaysSince, the same
+ * rule as the work queue card and the purchase bar, so the three screens agree.
+ */
 export function daysSince(sentAt: string, now: Date): string {
-  const days = differenceInCalendarDays(now, new Date(sentAt));
-  if (days <= 0) return "sent today";
+  const days = wholeDaysSince(sentAt, now);
+  if (days === null) return "sent";
+  if (days === 0) return "sent under a day ago";
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 

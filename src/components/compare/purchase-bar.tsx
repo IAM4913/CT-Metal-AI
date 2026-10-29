@@ -10,13 +10,15 @@
 // dialog names each such line with its selected and requested quantities so the
 // broker confirms knowingly (brokers do buy above the count for a bundle or the
 // next job). After a confirm the bar shows the purchases that were created (one
-// per vendor branch) and points at the history page (PLAN Step 8).
+// per vendor branch) and links to the purchase history page (/history), where
+// each purchase line is a row.
 
-import { differenceInCalendarDays, format } from "date-fns";
+import { format } from "date-fns";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { ComparisonModel } from "@/lib/compare/build";
 import type { RequestStatus } from "@/lib/db/enums";
+import { wholeDaysSince } from "@/lib/queue/group";
 
 export type PurchaseInput = { poNumber: string | null; notes: string | null };
 
@@ -48,11 +50,15 @@ const secondaryButton =
 const inputClass =
   "w-full rounded border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-500 disabled:bg-zinc-50";
 
-/** "sent today" or "3 days ago", for the awaiting list (AC-12.2 wording). */
+/**
+ * "sent under a day ago" or "sent 3 days ago", for the awaiting list (AC-12.2).
+ * Elapsed whole days through wholeDaysSince, the same rule as the work queue
+ * card and the Offers tab, so the three screens agree.
+ */
 export function sentAgo(sentAt: string | null, now: Date): string {
-  if (sentAt === null) return "not sent";
-  const days = differenceInCalendarDays(now, new Date(sentAt));
-  if (days <= 0) return "sent today";
+  const days = wholeDaysSince(sentAt, now);
+  if (days === null) return "not sent";
+  if (days === 0) return "sent under a day ago";
   return `sent ${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
@@ -126,8 +132,7 @@ export function PurchaseBar({
           <p className="mt-1 text-xs">
             <Link href={result.redirectTo ?? "/history"} className="font-medium underline hover:text-emerald-700">
               Open purchase history
-            </Link>{" "}
-            (the history page arrives in Step 8).
+            </Link>
           </p>
         </div>
       ) : null}

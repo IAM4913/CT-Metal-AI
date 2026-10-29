@@ -55,7 +55,7 @@ export type RoutingContext = {
   lines: Tables<"request_lines">[];
   branches: BranchForRouting[];
   history: CategoryPurchaseCount[];
-  /** rfqs with status draft, queued, failed, or sent for this request and revision. */
+  /** Every rfq of this request and revision (RFQS_TAB_STATUSES): the editable drafts plus the ones that went out, whatever happened after. */
   drafts: Tables<"rfqs">[];
   rfqLines: Tables<"rfq_lines">[];
 };
@@ -66,7 +66,15 @@ export const EDITABLE_RFQ_STATUSES: readonly RfqStatus[] = ["draft", "queued", "
 /** Statuses meaning the RFQ went out (AC-8.4 freezes the request behind them). */
 export const SENT_RFQ_STATUSES: readonly RfqStatus[] = ["sent", "responded", "declined", "closed"];
 
-const DRAFT_STATUSES: readonly RfqStatus[] = ["draft", "queued", "failed", "sent"];
+/**
+ * Every status the RFQs tab shows: the editable drafts, and every RFQ that
+ * went out, read-only (sent, responded, declined, closed). An answered RFQ
+ * stays on the tab because it is the only view of the sent body and its
+ * Message-ID (PRD section 10), and the history page links to it by anchor
+ * (AC-11.3). Together with EDITABLE_RFQ_STATUSES and SENT_RFQ_STATUSES this
+ * covers rfqStatusValues; routing.test.ts pins that.
+ */
+export const RFQS_TAB_STATUSES: readonly RfqStatus[] = [...EDITABLE_RFQ_STATUSES, ...SENT_RFQ_STATUSES];
 
 /** The sign-off when the signed-in account has no display name (PRD AC-7.2: the body is in Caleb's voice). */
 export const DEFAULT_SENDER_NAME = "Caleb";
@@ -96,7 +104,7 @@ export async function loadRoutingContext(session: BrokerSession, requestId: stri
     loadLiveLines(session, requestId),
     loadBranches(session),
     loadHistory(session),
-    loadRfqs(session, requestId, request.revision, DRAFT_STATUSES),
+    loadRfqs(session, requestId, request.revision, RFQS_TAB_STATUSES),
   ]);
   const rfqLines = await loadRfqLines(
     session,

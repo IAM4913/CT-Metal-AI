@@ -222,7 +222,7 @@ export function OfferCard({
   const headingId = `offer-${offer.id}-heading`;
 
   return (
-    <article aria-labelledby={headingId} className="flex flex-col gap-4 rounded border border-zinc-200 p-4">
+    <article id={`offer-${offer.id}`} aria-labelledby={headingId} className="flex flex-col gap-4 rounded border border-zinc-200 p-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-3">
